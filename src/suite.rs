@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::result::Result;
+
 #[repr(i8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Suite {
@@ -45,12 +47,23 @@ impl Suite {
         Clubs,
     ];
 
-    fn underlying(self) -> i8 {
+    pub fn from_ascii(ch: u8) -> Result<Self> {
+        let suite = match ch {
+            b'd' => Diamonds,
+            b's' => Spades,
+            b'h' => Hearts,
+            b'c' => Clubs,
+            _ => return Err(format!("invalid suite char '{ch}'").into()),
+        };
+        Ok(suite)
+    }
+
+    fn to_i8(self) -> i8 {
         self as i8
     }
 
     pub fn to_index(self) -> i8 {
-        let index = self.underlying() * 16;
+        let index = self.to_i8() * 16;
         debug_assert!(index >= 0 && index < 64);
         index
     }

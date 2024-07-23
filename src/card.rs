@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{cards::Cards, rank::Rank, suite::Suite};
+use crate::{cards::Cards, rank::Rank, result::Result, suite::Suite};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Card(i8);
@@ -30,6 +30,17 @@ impl Card {
         } else {
             Some(Self(index))
         }      
+    }
+
+    pub fn from_str(s: &str) -> Result<Self> {
+        match s.as_bytes() {
+            [rank_raw, suite_raw] => {
+                let rank = Rank::from_ascii(*rank_raw)?;
+                let suite = Suite::from_ascii(*suite_raw)?;
+                Ok(Self::of(rank, suite))
+            },
+            _ => Err(format!("invalid card '{s}': bad length").into()),
+        }
     }
 
     pub fn all() -> impl Iterator<Item = Self> {

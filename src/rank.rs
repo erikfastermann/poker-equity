@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::result::Result;
+
 #[repr(i8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Rank {
@@ -95,7 +97,7 @@ impl Rank {
         self.to_i8() as usize
     }
 
-    pub fn from_ascii(char: u8) -> Option<Self> {
+    pub fn from_ascii(char: u8) -> Result<Self> {
         let rank = match char {
             b'2' => Two,
             b'3' => Three,
@@ -110,9 +112,9 @@ impl Rank {
             b'Q' => Queen,
             b'K' => King,
             b'A' => Ace,
-            _ => return None,
+            _ => return Err(format!("invalid rank char '{char}'").into()),
         };
-        Some(rank)
+        Ok(rank)
     }
 
     pub fn range(from: Rank, to: Rank) -> impl Iterator<Item = Rank> {

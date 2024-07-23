@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, fmt, ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Shl}};
 
-use crate::{card::Card, rank::Rank, suite::Suite};
+use crate::{card::Card, rank::Rank, result::Result, suite::Suite};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -24,6 +24,20 @@ pub struct Top5 {
 }
 
 impl Top5 {
+    pub fn worst() -> Self {
+        let cards = Cards::from_slice(&[
+            Card::of(Rank::Seven, Suite::Clubs),
+            Card::of(Rank::Five, Suite::Diamonds),
+            Card::of(Rank::Four, Suite::Hearts),
+            Card::of(Rank::Three, Suite::Spades),
+            Card::of(Rank::Two, Suite::Clubs),
+        ]).unwrap();
+        let top5 = cards.top5();
+        debug_assert!(matches!(top5.ranking, HandRanking::HighCard));
+        debug_assert!(top5.cards.by_rank().highest_rank() == Some(Rank::Seven));
+        top5
+    }
+
     fn of(ranking: HandRanking, cards: Cards) -> Self {
         debug_assert!(cards.count() <= 5);
         Self { ranking, cards }
@@ -112,6 +126,24 @@ impl Cards {
         | Cards::MASK_SINGLE << 16
         | Cards::MASK_SINGLE;
 
+    pub fn from_str(s: &str) -> Result<Self> {
+        if s.len()%2 != 0 {
+            return Err(format!("invalid cards '{s}': bad length").into());
+        }
+        if !s.is_ascii() {
+            return Err(format!("invalid cards '{s}': not ascii").into());
+        }
+        let mut cards = Self::EMPTY;
+        for i in (0..s.len()).step_by(2) {
+            let card_raw = &s[i..i+2];
+            let card = Card::from_str(card_raw)?;
+            if !cards.try_add(card) {
+                return Err(format!("invalid cards '{s}': duplicate card {card}").into());
+            };
+        }
+        Ok(cards)
+    }
+
     pub fn from_slice(s: &[Card]) -> Option<Self> {
         let mut cards = Self::EMPTY;
         for card in s.iter().copied() {
@@ -145,9 +177,17 @@ impl Cards {
         (self.0 & (1 << card.to_index_u64())) != 0
     }
 
+    pub fn try_add(&mut self, card: Card) -> bool {
+        if self.has(card) {
+            false
+        } else {
+            self.0 |= 1 << card.to_index_u64();
+            true
+        }
+    }
+
     pub fn add(&mut self, card: Card) {
-        assert!(!self.has(card));
-        self.0 |= 1 << card.to_index_u64();
+        assert!(self.try_add(card));
     }
 
     pub fn with(self, card: Card) -> Self {
@@ -371,7 +411,7 @@ impl Iterator for CardsIter {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct CardsByRank(i16);
+pub struct CardsByRank(i16);
 
 impl fmt::Display for CardsByRank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -425,7 +465,7 @@ impl Shl<i8> for CardsByRank {
 }
 
 impl CardsByRank {
-    const EMPTY: Self = CardsByRank(0);
+    pub const EMPTY: Self = CardsByRank(0);
 
     const WHEEL: Self = Self(0b1_0000_0000_1111);
     const STRAIGHT_SIX_HIGH: Self = Self(0b11111);
@@ -449,13 +489,21 @@ impl CardsByRank {
         Rank::try_from(15 - self.0.leading_zeros() as i8).ok()
     }
 
-    fn has(self, rank: Rank) -> bool {
+    pub fn has(self, rank: Rank) -> bool {
         (self.0 & (1 << rank.to_i16())) != 0
     }
 
     pub fn add(&mut self, rank: Rank) {
-        assert!(!self.has(rank));
-        self.0 |= 1 << rank.to_i16();
+        assert!(self.try_add(rank));
+    }
+
+    pub fn try_add(&mut self, rank: Rank) -> bool {
+        if self.has(rank) {
+            false
+        } else {
+            self.0 |= 1 << rank.to_i16();
+            true
+        }
     }
 
     fn remove(&mut self, rank: Rank) {
