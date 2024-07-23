@@ -5,16 +5,37 @@ use crate::{card::Card, rank::Rank, result::Result, suite::Suite};
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HandRanking {
-    HighCard,
-    OnePair(Rank),
-    TwoPair { first: Rank, second: Rank },
-    ThreeOfAKind(Rank),
-    Straight,
-    Flush,
-    FullHouse { trips: Rank, pair: Rank },
-    FourOfAKind(Rank),
-    StraightFlush,
-    RoyalFlush,
+    HighCard = 0,
+    OnePair(Rank) = 1,
+    TwoPair { first: Rank, second: Rank } = 2,
+    ThreeOfAKind(Rank) = 3,
+    Straight = 4,
+    Flush = 5,
+    FullHouse { trips: Rank, pair: Rank } = 6,
+    FourOfAKind(Rank) = 7,
+    StraightFlush = 8,
+    RoyalFlush = 9,
+}
+
+impl HandRanking {
+    fn to_u16(self) -> u16 {
+        match self {
+            HandRanking::HighCard => 0,
+            HandRanking::OnePair(pair) => (1 << 8) | pair.to_u16(),
+            HandRanking::TwoPair { first, second } => {
+                (2 << 8) | (first.to_u16() << 4) | second.to_u16()
+            },
+            HandRanking::ThreeOfAKind(trips) => (3 << 8) | trips.to_u16(),
+            HandRanking::Straight => 4 << 8,
+            HandRanking::Flush => 5 << 8,
+            HandRanking::FullHouse { trips, pair } => {
+                (6 << 8) | (trips.to_u16() << 4) | pair.to_u16()
+            },
+            HandRanking::FourOfAKind(quads) => (7 << 8) | quads.to_u16(),
+            HandRanking::StraightFlush => 8 << 8,
+            HandRanking::RoyalFlush => 9 << 8,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,6 +80,17 @@ impl Top5 {
             },
             o => o,
         }
+    }
+
+    pub fn to_score(self) -> u32 {
+        let hand_ranking = self.ranking.to_u16();
+        debug_assert_eq!(hand_ranking&0xfff, hand_ranking);
+        let mut n = u32::from(hand_ranking) << 20;
+        assert!(self.cards.count() <= 5);
+        for (i, rank) in self.cards.by_rank().iter().enumerate() {
+            n |= rank.to_u32() << (16 - i*4);
+        }
+        n
     }
 }
 

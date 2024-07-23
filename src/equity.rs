@@ -1,51 +1,52 @@
-use std::cmp::Ordering;
+use crate::{card::Card, cards::Cards, range::RangeTable};
 
-use crate::{card::Card, cards::{Cards, Top5}, range::RangeTable};
+fn try_u64_to_f64(n: u64) -> Option<f64> {
+    const F64_MAX_SAFE_INT: u64 = 2 << 53;
+    if (F64_MAX_SAFE_INT-1)&n != n {
+        None
+    } else {
+        Some(n as f64)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Equity {
-    won: u32,
-    chop: u32,
-    total: u32,
+    wins: u64,
+    ties: f64,
+    total: u64,
 }
 
 impl Equity {
-    fn zero() -> Self {
-        Self {
-            won: 0,
-            chop: 0,
-            total: 0,
-        }
-    }
-
-    pub fn equity(
+    pub fn calc(
         community_cards: Cards,
         hero_cards: Cards,
         villain_ranges: &[impl AsRef<RangeTable>],
-    ) -> Equity {
+    ) -> Vec<Equity> {
         EquityCalculator::new(community_cards, hero_cards, villain_ranges).calc()
     }
 
     pub fn equity_percent(self) -> f64 {
-        f64::from(self.won + self.chop) / f64::from(self.total)
+        (try_u64_to_f64(self.wins).unwrap() + self.ties)
+            / try_u64_to_f64(self.total).unwrap()
     }
 
     pub fn win_percent(self) -> f64 {
-        f64::from(self.won) / f64::from(self.total)
+        try_u64_to_f64(self.wins).unwrap() / try_u64_to_f64(self.total).unwrap()
     }
 
     pub fn tie_percent(self) -> f64 {
-        f64::from(self.chop) / f64::from(self.total)
+        self.ties / try_u64_to_f64(self.total).unwrap()
     }
 }
 
 struct EquityCalculator<'a, RT: AsRef<RangeTable>> {
-    equity: Equity,
-    hero_top5: Top5,
     known_cards: Cards,
     community_cards: Cards,
     villain_ranges: &'a [RT],
-    villain_top5: Vec<Top5>,
+    hand_ranking_scores: Vec<u32>,
+    total: u64,
+    wins: Vec<u64>,
+    ties: Vec<f64>,
 }
 
 impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
@@ -60,25 +61,31 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
         assert!(known_cards.count() == community_cards.count()+hero_cards.count());
         assert!(!villain_ranges.is_empty());
         Self {
-            equity: Equity::zero(),
-            hero_top5: Top5::worst(),
             known_cards,
             community_cards,
             villain_ranges,
-            villain_top5: vec![Top5::worst(); villain_ranges.len()],
+            hand_ranking_scores: vec![0; villain_ranges.len() + 1],
+            total: 0,
+            wins: vec![0; villain_ranges.len() + 1],
+            ties: vec![0.0; villain_ranges.len() + 1],
         }
     }
 
-    fn calc(&mut self) -> Equity {
-        assert!(self.equity.total == 0);
+    fn calc(&mut self) -> Vec<Equity> {
+        assert!(self.total == 0);
         let remaining_community_cards = 5 - self.community_cards.count();
         self.community_cards(remaining_community_cards.into());
-        self.equity
+        let mut equities = Vec::with_capacity(self.wins.len());
+        for (wins, ties) in self.wins.iter().copied().zip(self.ties.iter().copied()) {
+            equities.push(Equity { wins, ties, total: self.total });
+        }
+        equities
+
     }
 
     fn community_cards(&mut self, remainder: usize) {
         if remainder == 0 {
-            self.hero_top5 = self.known_cards.top5();
+            self.hand_ranking_scores[0] = self.known_cards.top5().to_score();
             self.players(self.villain_ranges.len() - 1);
             return;
         }
@@ -96,7 +103,8 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
     }
 
     fn players(&mut self, remainder: usize) {
-        let villain = self.villain_ranges[remainder].as_ref();
+        let player_index = self.villain_ranges.len() - remainder - 1;
+        let villain = self.villain_ranges[player_index].as_ref();
         let current_known_cards = self.known_cards;
         for card_a in Card::all() {
             if current_known_cards.has(card_a) {
@@ -112,10 +120,11 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
                 if !villain.contains(card_a, card_b) {
                     continue;
                 }
-                self.villain_top5[remainder] = self.community_cards
+                self.hand_ranking_scores[player_index+1] = self.community_cards
                     .with(card_a)
                     .with(card_b)
-                    .top5();
+                    .top5()
+                    .to_score();
                 self.known_cards = current_known_cards.with(card_a).with(card_b);
 
                 if remainder != 0 {
@@ -128,20 +137,23 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
     }
 
     fn showdown(&mut self) {
-        let (mut loss, mut tie) = (0usize, 0usize);
-        for villain_top5 in self.villain_top5.iter().copied() {
-            match self.hero_top5.compare(villain_top5) {
-                Ordering::Less => loss += 1,
-                Ordering::Equal => tie += 1,
-                Ordering::Greater => (),
-            }
-        }
-        self.equity.total += 1;
-        if loss == 0 {
-            if tie == 0 {
-                self.equity.won += 1;
-            } else {
-                self.equity.chop += 1;
+        self.total += 1;
+        let max_score = self.hand_ranking_scores.iter().copied().max().unwrap();
+        let winners = self.hand_ranking_scores.iter()
+            .copied()
+            .filter(|score| *score == max_score)
+            .count();
+        if winners == 1 {
+            let winner_index = self.hand_ranking_scores.iter()
+                .position(|score| *score == max_score)
+                .unwrap();
+            self.wins[winner_index] += 1;
+        } else {
+            let ratio = 1.0 / try_u64_to_f64(u64::try_from(winners).unwrap()).unwrap();
+            for (index, score) in self.hand_ranking_scores.iter().copied().enumerate() {
+                if score == max_score {
+                    self.ties[index] += ratio;
+                }
             }
         }
     }

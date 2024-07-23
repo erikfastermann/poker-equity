@@ -89,12 +89,24 @@ impl Rank {
         self as i8
     }
 
+    pub fn to_u8(self) -> u8 {
+        self as u8
+    }
+
     pub fn to_i16(self) -> i16 {
-        self.to_i8() as i16
+        self.to_i8().into()
+    }
+
+    pub fn to_u16(self) -> u16 {
+        self.to_u8().into()
+    }
+
+    pub fn to_u32(self) -> u32 {
+        self.to_u8().into()
     }
 
     pub fn to_usize(self) -> usize {
-        self.to_i8() as usize
+        self.to_u8().into()
     }
 
     pub fn from_ascii(char: u8) -> Result<Self> {

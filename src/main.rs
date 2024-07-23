@@ -16,26 +16,25 @@ use crate::range::RangeTable;
 use crate::result::Result;
 
 fn main() -> Result<()> {
-    const RANGE: &'static str = "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo";
-
-    let range = RangeTable::parse(RANGE)?;
+    let range = RangeTable::parse(
+        "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
+    )?;
     println!("{range}");
 
-    let community_cards = Cards::from_str("ThQsAd").unwrap();
-    let hero_cards = Cards::from_str("KsTd").unwrap();
+    let community_cards = Cards::from_str("KsQs3h").unwrap();
+    let hero_cards = Cards::from_str("JsTs").unwrap();
     println!("{community_cards}");
     println!("{hero_cards}");
 
-    // let villain_ranges = [Arc::new(RangeTable::full())];
-    let villain_ranges = [Arc::new(range.clone()), Arc::new(range)];
-    let equity = Equity::equity(community_cards, hero_cards, &villain_ranges);
-    println!(
-        "equity={} win={} tie={} ({:?})",
-        equity.equity_percent(),
-        equity.win_percent(),
-        equity.tie_percent(),
-        equity,
-    );
-
+    let villain_ranges = [Arc::new(range), Arc::new(RangeTable::full())];
+    let equities = Equity::calc(community_cards, hero_cards, &villain_ranges);
+    for equity in equities {
+        println!(
+            "equity={:.2} win={:.2} tie={:.2}",
+            equity.equity_percent() * 100.0,
+            equity.win_percent() * 100.0,
+            equity.tie_percent() * 100.0,
+        );
+    }
     Ok(())
 }
