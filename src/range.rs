@@ -1,10 +1,13 @@
 use core::fmt;
 use std::cmp::{max, min};
 
+use rand::{Rng, seq::SliceRandom};
+
 use crate::card::Card;
-use crate::cards::CardsByRank;
+use crate::cards::{Cards, CardsByRank};
 use crate::rank::Rank;
 use crate::result::Result;
+use crate::suite::Suite;
 
 #[derive(Clone, Copy)]
 struct RangeEntry {
@@ -139,6 +142,32 @@ impl RangeTable {
         self.contains_entry(entry)
     }
 
+    pub fn count(&self) -> u8 {
+        self.table.iter().map(|row| row.count_u8()).sum()
+    }
+
+    pub fn to_range_simulator<R: Rng>(&self, rng: &mut R) -> RangeSimulator {
+        let mut hands = Vec::new();
+        for high in Rank::RANKS.iter().rev().copied() {
+            for low in Rank::RANKS[..=high.to_usize()].iter().rev().copied() {
+                for suite_a in Suite::SUITES {
+                    for suite_b in Suite::SUITES[suite_a.to_usize()..].iter().copied() {
+                        let suited = suite_a == suite_b;
+                        if suited && high == low {
+                            continue;
+                        }
+                        if !self.contains_entry(RangeEntry { high, low, suited }) {
+                            continue;
+                        }
+                        hands.push((Card::of(high, suite_a), Card::of(low, suite_b)));
+                    }
+                }
+            }
+        }
+        hands.shuffle(rng);
+        RangeSimulator { hands }
+    }
+
     fn parse_pair(&mut self, raw_rank: u8) -> Result<()> {
         let rank = Rank::from_ascii(raw_rank)?;
         self.try_add(RangeEntry { high: rank, low: rank, suited: false })?;
@@ -174,5 +203,41 @@ impl RangeTable {
             self.try_add(RangeEntry { high, low: rank, suited })?;
         }
         Ok(())
+    }
+}
+
+pub struct RangeSimulator {
+    hands: Vec<(Card, Card)>,
+}
+
+impl RangeSimulator {
+    pub fn of_hand(a: Card, b: Card) -> Self {
+        let (high, low) = if a.rank() > b.rank() {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        RangeSimulator { hands: vec![(high, low)] }
+    }
+
+    pub fn random_hand<R: Rng>(
+        &mut self,
+        rng: &mut R,
+        known_cards: &mut Cards,
+    ) -> Option<(Card, Card)> {
+        let mut len = self.hands.len();
+        while len > 0 {
+            let index = rng.gen_range(0..len);
+            let (high, low) = self.hands[index];
+            self.hands.swap(index, len-1);
+            len -= 1;
+
+            if !known_cards.has(high) && !known_cards.has(low) {
+                known_cards.add(high);
+                known_cards.add(low);
+                return Some((high, low));
+            }
+        }
+        None
     }
 }

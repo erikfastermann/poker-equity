@@ -1,5 +1,7 @@
 use std::fmt;
 
+use rand::{distributions::{Distribution, Standard}, Rng};
+
 use crate::result::Result;
 
 #[repr(i8)]
@@ -12,6 +14,13 @@ pub enum Suite {
 }
 
 use Suite::*;
+
+impl Distribution<Suite> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Suite {
+        let n = rng.gen_range(0..i8::try_from(Suite::COUNT).unwrap());
+        Suite::try_from(n).unwrap()
+    }
+}
 
 impl fmt::Display for Suite {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -40,7 +49,9 @@ impl TryFrom<i8> for Suite {
 }
 
 impl Suite {
-    pub const SUITES: [Suite; 4] = [
+    pub const COUNT: usize = 4;
+
+    pub const SUITES: [Suite; Self::COUNT] = [
         Diamonds,
         Spades,
         Hearts,
@@ -60,6 +71,14 @@ impl Suite {
 
     fn to_i8(self) -> i8 {
         self as i8
+    }
+
+    fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn to_usize(self) -> usize {
+        self.to_u8().into()
     }
 
     pub fn to_index(self) -> i8 {

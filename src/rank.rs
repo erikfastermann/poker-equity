@@ -1,5 +1,7 @@
 use std::fmt;
 
+use rand::{distributions::{Distribution, Standard}, Rng};
+
 use crate::result::Result;
 
 #[repr(i8)]
@@ -21,6 +23,13 @@ pub enum Rank {
 }
 
 use Rank::*;
+
+impl Distribution<Rank> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Rank {
+        let n = rng.gen_range(0..i8::try_from(Rank::COUNT).unwrap());
+        Rank::try_from(n).unwrap()
+    }
+}
 
 impl fmt::Display for Rank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

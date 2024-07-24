@@ -196,6 +196,19 @@ impl Cards {
         ]).unwrap()
     }
 
+    pub fn to_hand(self) -> Option<(Card, Card)> {
+        let mut iter = self.iter();
+        let (a, b) = match (iter.next(), iter.next()) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return None,
+        };
+        if iter.next().is_some() {
+            None
+        } else {
+            Some((a, b))
+        }
+    }
+
     fn to_u64(self) -> u64 {
         self.0
     }
@@ -566,8 +579,12 @@ impl CardsByRank {
         best_cards
     }
 
-    fn count(self) -> i8 {
+    pub fn count(self) -> i8 {
         self.0.count_ones() as i8
+    }
+
+    pub fn count_u8(self) -> u8 {
+        self.count() as u8
     }
 
     fn take_top_n(self, n: u8) -> Self {

@@ -1,9 +1,17 @@
 use std::fmt;
 
+use rand::{distributions::{Distribution, Standard}, Rng};
+
 use crate::{cards::Cards, rank::Rank, result::Result, suite::Suite};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Card(i8);
+
+impl Distribution<Card> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Card {
+        Card::of(rng.r#gen(), rng.r#gen())
+    }
+}
 
 impl fmt::Debug for Card {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
