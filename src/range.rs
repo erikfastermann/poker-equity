@@ -5,6 +5,7 @@ use rand::{Rng, seq::SliceRandom};
 
 use crate::card::Card;
 use crate::cards::{Cards, CardsByRank};
+use crate::hand::Hand;
 use crate::rank::Rank;
 use crate::result::Result;
 use crate::suite::Suite;
@@ -30,6 +31,14 @@ impl fmt::Display for RangeEntry {
 }
 
 impl RangeEntry {
+    fn from_hand(hand: Hand) -> Self {
+        RangeEntry {
+            high: hand.high().rank(),
+            low: hand.low().rank(),
+            suited: hand.suited(),
+        }
+    }
+
     fn first_second(self) -> (Rank, Rank) {
         debug_assert!(self.high >= self.low);
         if self.suited {
@@ -134,12 +143,8 @@ impl RangeTable {
         }
     }
 
-    pub fn contains(&self, a: Card, b: Card) -> bool {
-        let high = max(a.rank(), b.rank());
-        let low = min(a.rank(), b.rank());
-        let suited = a.suite() == b.suite();
-        let entry = RangeEntry { high, low, suited };
-        self.contains_entry(entry)
+    pub fn contains(&self, hand: Hand) -> bool {
+        self.contains_entry(RangeEntry::from_hand(hand))
     }
 
     pub fn count(&self) -> u8 {
@@ -159,7 +164,11 @@ impl RangeTable {
                         if !self.contains_entry(RangeEntry { high, low, suited }) {
                             continue;
                         }
-                        hands.push((Card::of(high, suite_a), Card::of(low, suite_b)));
+                        let hand = Hand::of_cards(
+                            Card::of(high, suite_a),
+                            Card::of(low, suite_b),
+                        );
+                        hands.push(hand);
                     }
                 }
             }
@@ -207,36 +216,39 @@ impl RangeTable {
 }
 
 pub struct RangeSimulator {
-    hands: Vec<(Card, Card)>,
+    hands: Vec<Hand>,
 }
 
 impl RangeSimulator {
-    pub fn of_hand(a: Card, b: Card) -> Self {
-        let (high, low) = if a.rank() > b.rank() {
-            (a, b)
-        } else {
-            (b, a)
-        };
-        RangeSimulator { hands: vec![(high, low)] }
+    pub fn of_hand(hand: Hand) -> Self {
+        RangeSimulator { hands: vec![hand] }
+    }
+
+    pub fn without(mut self, hand: Hand) -> Self {
+        if let Some(index) = self.hands.iter().position(|h| *h == hand) {
+            self.hands.remove(index);
+        }
+        self
     }
 
     pub fn random_hand<R: Rng>(
         &mut self,
         rng: &mut R,
         known_cards: &mut Cards,
-    ) -> Option<(Card, Card)> {
+    ) -> Option<Hand> {
         let mut len = self.hands.len();
         while len > 0 {
             let index = rng.gen_range(0..len);
-            let (high, low) = self.hands[index];
+            let hand = self.hands[index];
+
+            if !known_cards.has(hand.high()) && !known_cards.has(hand.low()) {
+                known_cards.add(hand.high());
+                known_cards.add(hand.low());
+                return Some(hand);
+            }
+
             self.hands.swap(index, len-1);
             len -= 1;
-
-            if !known_cards.has(high) && !known_cards.has(low) {
-                known_cards.add(high);
-                known_cards.add(low);
-                return Some((high, low));
-            }
         }
         None
     }

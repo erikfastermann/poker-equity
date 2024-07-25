@@ -26,6 +26,8 @@ impl fmt::Display for Card {
 }
 
 impl Card {
+    pub const COUNT: usize = Suite::COUNT * Rank::COUNT;
+
     pub fn of(rank: Rank, suite: Suite) -> Self {
         Self(suite.to_index() + rank.to_i8())
     }

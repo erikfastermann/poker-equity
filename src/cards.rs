@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, fmt, ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Shl}};
 
-use crate::{card::Card, rank::Rank, result::Result, suite::Suite};
+use crate::{card::Card, hand::Hand, rank::Rank, result::Result, suite::Suite};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -196,7 +196,7 @@ impl Cards {
         ]).unwrap()
     }
 
-    pub fn to_hand(self) -> Option<(Card, Card)> {
+    pub fn to_hand(self) -> Option<Hand> {
         let mut iter = self.iter();
         let (a, b) = match (iter.next(), iter.next()) {
             (Some(a), Some(b)) => (a, b),
@@ -205,7 +205,7 @@ impl Cards {
         if iter.next().is_some() {
             None
         } else {
-            Some((a, b))
+            Some(Hand::of_cards(a, b))
         }
     }
 

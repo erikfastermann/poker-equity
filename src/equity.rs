@@ -1,6 +1,6 @@
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 
-use crate::{card::Card, cards::Cards, range::{RangeSimulator, RangeTable}};
+use crate::{card::Card, cards::Cards, hand::Hand, range::{RangeSimulator, RangeTable}, rank::Rank, suite::Suite};
 
 fn try_u64_to_f64(n: u64) -> Option<f64> {
     const F64_MAX_SAFE_INT: u64 = 2 << 53;
@@ -31,19 +31,9 @@ fn check_input(
     assert!(villain_ranges.len() <= 8);
 }
 
-fn random_card<R: Rng>(rng: &mut R, known_cards: &mut Cards) -> Card {
-    for _ in 0..1000 { // TODO
-        let card = rng.r#gen();
-        if !known_cards.has(card) {
-            known_cards.add(card);
-            return card;
-        }
-    }
-    panic!()
-}
-
 impl Equity {
     fn from_total_wins_ties(total: u64, wins: &[u64], ties: &[f64]) -> Vec<Self> {
+        assert_ne!(total, 0);
         assert_eq!(wins.len(), ties.len());
         let mut equities = Vec::with_capacity(wins.len());
         for (wins, ties) in wins.iter().copied().zip(ties.iter().copied()) {
@@ -56,7 +46,7 @@ impl Equity {
         community_cards: Cards,
         hero_cards: Cards,
         villain_ranges: &[impl AsRef<RangeTable>],
-    ) -> Vec<Equity> {
+    ) -> Option<Vec<Equity>> {
         EquityCalculator::new(community_cards, hero_cards, villain_ranges).calc()
     }
 
@@ -65,18 +55,23 @@ impl Equity {
         hero_cards: Cards,
         villain_ranges: &[impl AsRef<RangeTable>],
         rounds: usize,
-    ) -> Vec<Equity> {
-        // TODO: This seams biased towards hero.
+    ) -> Option<Vec<Equity>> {
+        // TODO:
+        // The result is a little bit wrong consistently in the tested example cases
+        // (1-2% more than I would expect) and does not converge with more rounds.
 
         check_input(start_community_cards, hero_cards, villain_ranges);
         let remaining_community_cards = 5 - start_community_cards.count();
         let mut rng = SmallRng::from_entropy();
+        let mut deck = Deck::new(&mut rng);
 
         let mut range_simulators = {
-            let (a, b) = hero_cards.to_hand().unwrap();
-            let mut range_simulators = vec![RangeSimulator::of_hand(a, b)];
+            let hero_hand = hero_cards.to_hand().unwrap();
+            let mut range_simulators = vec![RangeSimulator::of_hand(hero_hand)];
             range_simulators.extend(villain_ranges.iter()
-                .map(|range| range.as_ref().to_range_simulator(&mut rng)));
+                .map(|range| range.as_ref()
+                    .to_range_simulator(&mut rng)
+                    .without(hero_hand)));
             range_simulators
         };
 
@@ -91,7 +86,7 @@ impl Equity {
                 let community_cards = {
                     let mut community_cards = start_community_cards;
                     for _ in 0..remaining_community_cards {
-                        random_card(&mut rng, &mut community_cards);
+                        deck.draw(&mut rng, &mut community_cards);
                     }
                     community_cards
                 };
@@ -101,11 +96,14 @@ impl Equity {
                 let mut known_cards = community_cards;
                 for i in indices.iter().copied() {
                     let range = &mut range_simulators[i];
-                    let Some((a, b)) = range.random_hand(&mut rng, &mut known_cards) else {
+                    let Some(hand) = range.random_hand(&mut rng, &mut known_cards) else {
                         valid_hand = false;
                         break;
                     };
-                    scores[i] = community_cards.with(a).with(b).top5().to_score();
+                    scores[i] = community_cards.with(hand.high())
+                        .with(hand.low())
+                        .top5()
+                        .to_score();
                 }
 
                 if valid_hand {
@@ -116,7 +114,11 @@ impl Equity {
             }
         }
 
-        Self::from_total_wins_ties(total, &wins, &ties)
+        if usize::try_from(total).unwrap() < rounds/2 {
+            None
+        } else {
+            Some(Self::from_total_wins_ties(total, &wins, &ties))
+        }
     }
 
     pub fn equity_percent(self) -> f64 {
@@ -161,11 +163,15 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
         }
     }
 
-    fn calc(&mut self) -> Vec<Equity> {
+    fn calc(&mut self) -> Option<Vec<Equity>> {
         assert!(self.total == 0);
         let remaining_community_cards = 5 - self.community_cards.count();
         self.community_cards(remaining_community_cards.into());
-        Equity::from_total_wins_ties(self.total, &self.wins, &self.ties)
+        if self.total != 0 {
+            Some(Equity::from_total_wins_ties(self.total, &self.wins, &self.ties))
+        } else {
+            None
+        }
     }
 
     fn community_cards(&mut self, remainder: usize) {
@@ -202,7 +208,7 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
                 if card_a == card_b {
                     continue;
                 }
-                if !villain.contains(card_a, card_b) {
+                if !villain.contains(Hand::of_cards(card_a, card_b)) {
                     continue;
                 }
                 self.hand_ranking_scores[player_index+1] = self.community_cards
@@ -249,5 +255,41 @@ fn showdown(
                 ties[index] += ratio;
             }
         }
+    }
+}
+
+pub struct Deck {
+    cards: [Card; Card::COUNT],
+}
+
+impl Deck {
+    pub fn new(rng: &mut impl Rng) -> Self {
+        let mut deck = [Card::of(Rank::Two, Suite::Diamonds); Card::COUNT];
+        for (i, card) in Card::all().enumerate() {
+            deck[i] = card;
+        }
+        deck.shuffle(rng);
+        Deck { cards: deck }
+    }
+
+    pub fn draw(
+        &mut self,
+        rng: &mut impl Rng,
+        known_cards: &mut Cards,
+    ) -> Option<Card> {
+        let mut len = self.cards.len();
+        while len > 0 {
+            let index = rng.gen_range(0..len);
+            let card = self.cards[index];
+
+            if !known_cards.has(card) {
+                known_cards.add(card);
+                return Some(card);
+            }
+
+            self.cards.swap(index, len-1);
+            len -= 1;
+        }
+        None
     }
 }
