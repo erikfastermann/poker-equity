@@ -17,6 +17,8 @@ use crate::range::RangeTable;
 use crate::result::Result;
 
 fn main() -> Result<()> {
+    unsafe { Cards::init_score_map() };
+
     let range = RangeTable::parse(
         "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
         // "AA",

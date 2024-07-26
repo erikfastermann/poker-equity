@@ -1,6 +1,6 @@
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 
-use crate::{card::Card, cards::Cards, hand::Hand, range::{RangeSimulator, RangeTable}, rank::Rank, suite::Suite};
+use crate::{card::Card, cards::{Cards, Score}, hand::Hand, range::{RangeSimulator, RangeTable}, rank::Rank, suite::Suite};
 
 fn try_u64_to_f64(n: u64) -> Option<f64> {
     const F64_MAX_SAFE_INT: u64 = 2 << 53;
@@ -76,7 +76,7 @@ impl Equity {
         };
 
         let mut total = 0u64;
-        let mut scores = vec![0u32; range_simulators.len()];
+        let mut scores = vec![Score::ZERO; range_simulators.len()];
         let mut wins = vec![0u64; range_simulators.len()];
         let mut ties = vec![0.0; range_simulators.len()];
         let mut indices: Vec<_> = (0..range_simulators.len()).collect();
@@ -100,10 +100,9 @@ impl Equity {
                         valid_hand = false;
                         break;
                     };
-                    scores[i] = community_cards.with(hand.high())
-                        .with(hand.low())
-                        .top5()
-                        .to_score();
+                    let player_cards = community_cards.with(hand.high())
+                        .with(hand.low());
+                    scores[i] = player_cards.score_fast();
                 }
 
                 if valid_hand {
@@ -139,7 +138,7 @@ struct EquityCalculator<'a, RT: AsRef<RangeTable>> {
     known_cards: Cards,
     community_cards: Cards,
     villain_ranges: &'a [RT],
-    hand_ranking_scores: Vec<u32>,
+    hand_ranking_scores: Vec<Score>,
     total: u64,
     wins: Vec<u64>,
     ties: Vec<f64>,
@@ -156,7 +155,7 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
             known_cards: community_cards | hero_cards,
             community_cards,
             villain_ranges,
-            hand_ranking_scores: vec![0; villain_ranges.len() + 1],
+            hand_ranking_scores: vec![Score::ZERO; villain_ranges.len() + 1],
             total: 0,
             wins: vec![0; villain_ranges.len() + 1],
             ties: vec![0.0; villain_ranges.len() + 1],
@@ -214,8 +213,7 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
                 self.hand_ranking_scores[player_index+1] = self.community_cards
                     .with(card_a)
                     .with(card_b)
-                    .top5()
-                    .to_score();
+                    .score_fast();
                 self.known_cards = current_known_cards.with(card_a).with(card_b);
 
                 if remainder != 0 {
@@ -234,7 +232,7 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
 }
 
 fn showdown(
-    hand_ranking_scores: &[u32],
+    hand_ranking_scores: &[Score],
     wins: &mut [u64],
     ties: &mut [f64],
 ) {

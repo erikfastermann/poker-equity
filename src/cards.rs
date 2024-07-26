@@ -1,6 +1,58 @@
-use std::{cmp::Ordering, fmt, ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Shl}};
+use std::{cmp::Ordering, collections::HashMap, fmt, ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Shl}};
 
 use crate::{card::Card, hand::Hand, rank::Rank, result::Result, suite::Suite};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Score(u32);
+
+impl Score {
+    pub const ZERO: Score = Score(0);
+
+    fn from_ranking_cards(ranking: HandRanking, cards: Cards) -> Self {
+        let hand_ranking = ranking.to_u16();
+        debug_assert_eq!(hand_ranking&0xfff, hand_ranking);
+        let mut n = u32::from(hand_ranking) << 20;
+        assert!(cards.count() <= 5);
+        for (i, rank) in cards.by_rank().iter().enumerate() {
+            n |= rank.to_u32() << (16 - i*4);
+        }
+        Score(n)
+    }
+
+    fn from_counts(counts: &[u8; Rank::COUNT]) -> Self {
+        let mut cards = Cards::EMPTY;
+        let mut suite = Suite::Diamonds;
+        for rank in Rank::RANKS.iter().copied() {
+            for _ in 0..counts[rank.to_usize()] {
+                cards.add(Card::of(rank, suite));
+                let next_suite_index = (suite.to_usize()+1) % Suite::COUNT;
+                suite = Suite::try_from(i8::try_from(next_suite_index).unwrap()).unwrap();
+            }
+        }
+        assert!({
+            let count = cards.count();
+            count >= 5 && count <= 7
+        });
+        assert!(cards.flush().is_none());
+        let top5 = cards.top5();
+        assert!(matches!(
+            top5.ranking,
+            HandRanking::HighCard
+                | HandRanking::OnePair(_)
+                | HandRanking::TwoPair{ .. }
+                | HandRanking::ThreeOfAKind(_)
+                | HandRanking::Straight
+                | HandRanking::FullHouse { .. }
+                | HandRanking::FourOfAKind(_)
+        ));
+        top5.to_score()
+    }
+
+    fn to_hand_ranking(self) -> HandRanking {
+        let n = u16::try_from((self.0>>20) & 0xfff).unwrap();
+        HandRanking::from_u16(n).unwrap()
+    }
+}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -35,6 +87,40 @@ impl HandRanking {
             HandRanking::StraightFlush => 8 << 8,
             HandRanking::RoyalFlush => 9 << 8,
         }
+    }
+
+    fn from_u16(n: u16) -> Option<Self> {
+        let ranking = match n >> 8 {
+            0 => HandRanking::HighCard,
+            1 => {
+                let pair = Rank::try_from(i8::try_from(n&0xf).unwrap()).ok()?;
+                HandRanking::OnePair(pair)
+            },
+            2 => {
+                let first = Rank::try_from(i8::try_from((n>>4)&0xf).unwrap()).ok()?;
+                let second = Rank::try_from(i8::try_from(n&0xf).unwrap()).ok()?;
+                HandRanking::TwoPair { first, second }
+            },
+            3 => {
+                let trips = Rank::try_from(i8::try_from(n&0xf).unwrap()).ok()?;
+                HandRanking::ThreeOfAKind(trips)
+            },
+            4 => HandRanking::Straight,
+            5 => HandRanking::Flush,
+            6 => {
+                let trips = Rank::try_from(i8::try_from((n>>4)&0xf).unwrap()).ok()?;
+                let pair = Rank::try_from(i8::try_from(n&0xf).unwrap()).ok()?;
+                HandRanking::FullHouse { trips, pair }
+            },
+            7 => {
+                let quads = Rank::try_from(i8::try_from(n&0xf).unwrap()).ok()?;
+                HandRanking::FourOfAKind(quads)
+            },
+            8 => HandRanking::StraightFlush,
+            9 => HandRanking::RoyalFlush,
+            _ => return None,
+        };
+        Some(ranking)
     }
 }
 
@@ -82,15 +168,8 @@ impl Top5 {
         }
     }
 
-    pub fn to_score(self) -> u32 {
-        let hand_ranking = self.ranking.to_u16();
-        debug_assert_eq!(hand_ranking&0xfff, hand_ranking);
-        let mut n = u32::from(hand_ranking) << 20;
-        assert!(self.cards.count() <= 5);
-        for (i, rank) in self.cards.by_rank().iter().enumerate() {
-            n |= rank.to_u32() << (16 - i*4);
-        }
-        n
+    pub fn to_score(self) -> Score {
+        Score::from_ranking_cards(self.ranking, self.cards)
     }
 }
 
@@ -147,6 +226,8 @@ impl Not for Cards {
         Self((!self.0) & Self::MASK_FULL)
     }
 }
+
+static mut CARDS_SCORE_MAP: Option<&'static HashMap<u64, Score>> = None;
 
 impl Cards {
     pub const EMPTY: Self = Cards(0);
@@ -269,6 +350,88 @@ impl Cards {
         Suite::SUITES.iter()
             .copied()
             .map(move |suite| (suite, CardsByRank::from_cards_suite(self, suite)))
+    }
+
+    fn cards_score_map() -> &'static HashMap<u64, Score> {
+        unsafe { CARDS_SCORE_MAP.unwrap() }
+    }
+
+    pub fn score_fast(self) -> Score {
+        assert!({
+            let count = self.count();
+            count >= 5 && count <= 7
+        });
+        let counts = self.counts();
+        let counts_n = Self::counts_n(&counts);
+        let score = Self::cards_score_map()[&counts_n];
+        if let Some(flush) = self.flush() {
+            if matches!(score.to_hand_ranking(), HandRanking::Straight) {
+                if let Some(straight_flush) = self.straight_flush() {
+                    if straight_flush.first().unwrap().rank() == Rank::Ace {
+                        return Top5::of(
+                            HandRanking::RoyalFlush,
+                            straight_flush,
+                        ).to_score();
+                    } else {
+                        return Top5::of(
+                            HandRanking::StraightFlush,
+                            straight_flush,
+                        ).to_score();
+                    }
+                }
+            }
+            Top5::of(HandRanking::Flush, flush).to_score()
+        } else {
+            score
+        }
+    }
+
+    pub unsafe fn init_score_map() {
+        let mut map = HashMap::new();
+        Self::score_map_recursive(
+            &mut map,
+            0,
+            &mut [0u8; Rank::COUNT],
+            Rank::COUNT,
+        );
+        unsafe {
+            assert!(CARDS_SCORE_MAP.is_none());
+            CARDS_SCORE_MAP = Some(Box::leak(Box::new(map)));
+        }
+    }
+
+    fn score_map_recursive(
+        map: &mut HashMap<u64, Score>,
+        old_count: u8,
+        counts: &mut [u8; Rank::COUNT],
+        remainder: usize,
+    ) {
+        for n in 0..=4 {
+            let index = Rank::COUNT - remainder;
+            counts[index] = n;
+            let next_count = old_count + n;
+            if remainder == 1 {
+                if next_count < 5 || next_count > 7 {
+                    continue;
+                }
+                let counts_n = Self::counts_n(counts);
+                let score = Score::from_counts(counts);
+                assert!(map.insert(counts_n, score).is_none());
+            } else {
+                if next_count > 7 {
+                    break;
+                }
+                Self::score_map_recursive(map, next_count, counts, remainder-1);
+            }
+        }
+    }
+
+    fn counts_n(counts: &[u8; Rank::COUNT]) -> u64 {
+        let mut counts_n = 0u64;
+        for (index, count) in counts.iter().copied().enumerate() {
+            counts_n |= u64::from(count) << (index*3);
+        }
+        counts_n
     }
 
     pub fn top5(self) -> Top5 {
