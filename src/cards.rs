@@ -227,6 +227,15 @@ impl Not for Cards {
     }
 }
 
+fn interleave_first_32_bits_with_zeros(mut n: u64) -> u64 {
+    n = (n ^ (n << 16)) & 0x0000ffff0000ffff;
+    n = (n ^ (n << 8)) & 0x00ff00ff00ff00ff;
+    n = (n ^ (n << 4)) & 0x0f0f0f0f0f0f0f0f;
+    n = (n ^ (n << 2)) & 0x3333333333333333;
+    n = (n ^ (n << 1)) & 0x5555555555555555;
+    n
+}
+
 static mut CARDS_SCORE_MAP: Option<&'static HashMap<u64, Score>> = None;
 
 impl Cards {
@@ -361,29 +370,27 @@ impl Cards {
             let count = self.count();
             count >= 5 && count <= 7
         });
-        let counts = self.counts();
-        let counts_n = Self::counts_n(&counts);
+        let counts_n = self.counts_n_fast();
         let score = Self::cards_score_map()[&counts_n];
-        if let Some(flush) = self.flush() {
-            if matches!(score.to_hand_ranking(), HandRanking::Straight) {
-                if let Some(straight_flush) = self.straight_flush() {
-                    if straight_flush.first().unwrap().rank() == Rank::Ace {
-                        return Top5::of(
-                            HandRanking::RoyalFlush,
-                            straight_flush,
-                        ).to_score();
-                    } else {
-                        return Top5::of(
-                            HandRanking::StraightFlush,
-                            straight_flush,
-                        ).to_score();
-                    }
+        if !self.is_flush() {
+            return score;
+        }
+        if matches!(score.to_hand_ranking(), HandRanking::Straight) {
+            if let Some(straight_flush) = self.straight_flush() {
+                if straight_flush.first().unwrap().rank() == Rank::Ace {
+                    return Top5::of(
+                        HandRanking::RoyalFlush,
+                        straight_flush,
+                    ).to_score();
+                } else {
+                    return Top5::of(
+                        HandRanking::StraightFlush,
+                        straight_flush,
+                    ).to_score();
                 }
             }
-            Top5::of(HandRanking::Flush, flush).to_score()
-        } else {
-            score
         }
+        Top5::of(HandRanking::Flush, self.flush().unwrap()).to_score()
     }
 
     pub unsafe fn init_score_map() {
@@ -429,8 +436,21 @@ impl Cards {
     fn counts_n(counts: &[u8; Rank::COUNT]) -> u64 {
         let mut counts_n = 0u64;
         for (index, count) in counts.iter().copied().enumerate() {
-            counts_n |= u64::from(count) << (index*3);
+            counts_n |= u64::from(count) << (index*4);
         }
+        counts_n
+    }
+
+    fn counts_n_fast(self) -> u64 {
+        let mut counts_n = 0u64;
+        for suite in Suite::SUITES {
+            let cards = CardsByRank::from_cards_suite(self, suite);
+            let n = interleave_first_32_bits_with_zeros(
+                interleave_first_32_bits_with_zeros(cards.to_u64()),
+            );
+            counts_n += n;
+        }
+        debug_assert_eq!(counts_n, Self::counts_n(&self.counts()));
         counts_n
     }
 
@@ -523,6 +543,15 @@ impl Cards {
             out |= (self & Self::of_rank(rank)).take_n(1);
         }
         Some(out)
+    }
+
+    fn is_flush(self) -> bool {
+        let mut is_flush = false;
+        for suite in Suite::SUITES {
+            let cards = CardsByRank::from_cards_suite(self, suite);
+            is_flush |= cards.count() >= 5;
+        }
+        is_flush
     }
 
     fn flush(self) -> Option<Self> {
@@ -748,6 +777,10 @@ impl CardsByRank {
 
     pub fn count_u8(self) -> u8 {
         self.count() as u8
+    }
+
+    fn to_u64(self) -> u64 {
+        self.0 as u64
     }
 
     fn take_top_n(self, n: u8) -> Self {
