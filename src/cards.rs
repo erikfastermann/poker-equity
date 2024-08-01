@@ -48,6 +48,10 @@ impl Score {
         top5.to_score()
     }
 
+    fn add_unchecked(self, rhs: Score) -> Score {
+        Score(self.0 + rhs.0)
+    }
+
     fn to_hand_ranking(self) -> HandRanking {
         let n = u16::try_from((self.0>>20) & 0xfff).unwrap();
         HandRanking::from_u16(n).unwrap()
@@ -238,6 +242,10 @@ fn interleave_first_32_bits_with_zeros(mut n: u64) -> u64 {
 
 static mut CARDS_SCORE_MAP: Option<&'static HashMap<u64, Score>> = None;
 
+const FLUSH_MAP_SIZE: usize = (Cards::MASK_SINGLE + 1) as usize;
+
+static mut CARDS_FLUSH_MAP: [Score; FLUSH_MAP_SIZE] = [Score::ZERO; FLUSH_MAP_SIZE];
+
 impl Cards {
     pub const EMPTY: Self = Cards(0);
 
@@ -361,8 +369,12 @@ impl Cards {
             .map(move |suite| (suite, CardsByRank::from_cards_suite(self, suite)))
     }
 
-    fn cards_score_map() -> &'static HashMap<u64, Score> {
+    fn score_map() -> &'static HashMap<u64, Score> {
         unsafe { CARDS_SCORE_MAP.unwrap() }
+    }
+
+    fn flush_map_get(cards: CardsByRank) -> Score {
+        unsafe { CARDS_FLUSH_MAP[cards.to_usize()] }
     }
 
     pub fn score_fast(self) -> Score {
@@ -371,29 +383,51 @@ impl Cards {
             count >= 5 && count <= 7
         });
         let counts_n = self.counts_n_fast();
-        let score = Self::cards_score_map()[&counts_n];
+        let score = Self::score_map()[&counts_n];
         if !self.is_flush() {
             return score;
         }
-        if matches!(score.to_hand_ranking(), HandRanking::Straight) {
-            if let Some(straight_flush) = self.straight_flush() {
-                if straight_flush.first().unwrap().rank() == Rank::Ace {
-                    return Top5::of(
-                        HandRanking::RoyalFlush,
-                        straight_flush,
-                    ).to_score();
-                } else {
-                    return Top5::of(
-                        HandRanking::StraightFlush,
-                        straight_flush,
-                    ).to_score();
-                }
-            }
+
+        let mut score = Score::ZERO;
+        for suite in Suite::SUITES {
+            let cards = CardsByRank::from_cards_suite(self, suite);
+            let suite_score = Self::flush_map_get(cards);
+            score = score.add_unchecked(suite_score);
         }
-        Top5::of(HandRanking::Flush, self.flush().unwrap()).to_score()
+        debug_assert_eq!(self.top5().to_score(), score);
+        score
     }
 
-    pub unsafe fn init_score_map() {
+    pub unsafe fn init() {
+        unsafe {
+            assert_eq!(CARDS_FLUSH_MAP[0b11111], Score::ZERO);
+            let flush_map = &mut CARDS_FLUSH_MAP;
+            Self::init_flush_map(flush_map);
+        };
+        let score_map = Self::build_score_map();
+        unsafe {
+            assert!(CARDS_SCORE_MAP.is_none());
+            CARDS_SCORE_MAP = Some(Box::leak(Box::new(score_map)));
+        }
+    }
+
+    fn init_flush_map(map: &mut [Score; FLUSH_MAP_SIZE]) {
+        for n in 0..FLUSH_MAP_SIZE {
+            if n.count_ones() < 5 {
+                map[n] = Score::ZERO;
+            } else {
+                let cards = CardsByRank::from_raw(i16::try_from(n).unwrap())
+                    .to_cards_suite(Suite::Diamonds);
+                let top5 = cards.top5();
+                assert!(matches!(top5.ranking, HandRanking::Flush
+                    | HandRanking::StraightFlush
+                    | HandRanking::RoyalFlush));
+                map[n] = top5.to_score();
+            }
+        }
+    }
+
+    fn build_score_map() -> HashMap<u64, Score> {
         let mut map = HashMap::new();
         Self::score_map_recursive(
             &mut map,
@@ -401,10 +435,7 @@ impl Cards {
             &mut [0u8; Rank::COUNT],
             Rank::COUNT,
         );
-        unsafe {
-            assert!(CARDS_SCORE_MAP.is_none());
-            CARDS_SCORE_MAP = Some(Box::leak(Box::new(map)));
-        }
+        map
     }
 
     fn score_map_recursive(
@@ -707,6 +738,16 @@ impl CardsByRank {
     const WHEEL: Self = Self(0b1_0000_0000_1111);
     const STRAIGHT_SIX_HIGH: Self = Self(0b11111);
 
+    fn from_raw(n: i16) -> Self {
+        debug_assert!(if n.is_negative() {
+            false
+        } else {
+            let n_u64 = u64::try_from(n).unwrap();
+            Cards::MASK_SINGLE&n_u64 == n_u64
+        });
+        CardsByRank(n)
+    }
+
     fn from_cards(cards: Cards) -> Self {
         let n = cards.to_u64();
         let collapsed = (n | (n >> 16) | (n >> 32) | (n >> 48)) & Cards::MASK_SINGLE;
@@ -781,6 +822,10 @@ impl CardsByRank {
 
     fn to_u64(self) -> u64 {
         self.0 as u64
+    }
+
+    fn to_usize(self) -> usize {
+        self.0 as usize
     }
 
     fn take_top_n(self, n: u8) -> Self {
