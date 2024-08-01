@@ -130,6 +130,8 @@ impl Equity {
 
 struct EquityCalculator<'a, RT: AsRef<RangeTable>> {
     known_cards: Cards,
+    hero_cards: Cards,
+    visited_community_cards: Cards,
     community_cards: Cards,
     villain_ranges: &'a [RT],
     hand_ranking_scores: Vec<Score>,
@@ -146,8 +148,10 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
     ) -> Self {
         check_input(community_cards, hero_cards, villain_ranges);
         Self {
-            known_cards: community_cards | hero_cards,
+            known_cards: Cards::EMPTY,
+            hero_cards,
             community_cards,
+            visited_community_cards: community_cards | hero_cards,
             villain_ranges,
             hand_ranking_scores: vec![Score::ZERO; villain_ranges.len() + 1],
             total: 0,
@@ -169,19 +173,19 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
 
     fn community_cards(&mut self, remainder: usize) {
         if remainder == 0 {
-            self.hand_ranking_scores[0] = self.known_cards.top5().to_score();
+            let known_cards = self.hero_cards | self.community_cards;
+            self.hand_ranking_scores[0] = known_cards.top5().to_score();
+            self.known_cards = known_cards;
             self.players(self.villain_ranges.len() - 1);
             return;
         }
 
-        let current_known_cards = self.known_cards;
         let current_community_cards = self.community_cards;
-        for card in Card::all() {
-            if current_known_cards.has(card) {
-                continue;
-            }
-            self.known_cards = current_known_cards.with(card);
+        let mut current_visited_community_cards = self.visited_community_cards;
+        while let Some(card) = (!current_visited_community_cards).first() {
             self.community_cards = current_community_cards.with(card);
+            current_visited_community_cards.add(card);
+            self.visited_community_cards = current_visited_community_cards;
             self.community_cards(remainder - 1);
         }
     }
