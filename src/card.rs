@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{cmp::Ordering, fmt};
 
 use rand::{distributions::{Distribution, Standard}, Rng};
 
@@ -72,5 +72,10 @@ impl Card {
 
     pub fn to_index_u64(self) -> u64 {
         self.to_index() as u64
+    }
+
+    pub fn cmp_by_rank(self, other: Self) -> Ordering {
+        self.rank().cmp(&other.rank())
+            .then_with(|| self.suite().to_usize().cmp(&other.suite().to_usize()))
     }
 }

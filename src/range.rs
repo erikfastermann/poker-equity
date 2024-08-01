@@ -196,7 +196,7 @@ impl RangeTable {
         self.table.iter().map(|row| row.count_u8()).sum()
     }
 
-    pub fn to_range_simulator(&self) -> RangeSimulator {
+    pub fn to_set(&self) -> HashSet<Hand> {
         let mut hands = HashSet::new();
         for high in Rank::RANKS.iter().rev().copied() {
             for low in Rank::RANKS[..=high.to_usize()].iter().rev().copied() {
@@ -218,7 +218,7 @@ impl RangeTable {
                 }
             }
         }
-        RangeSimulator { hands: Vec::from_iter(hands) }
+        hands
     }
 
     fn parse_pair(&mut self, raw_rank: u8) -> Result<()> {
@@ -260,44 +260,58 @@ impl RangeTable {
 }
 
 pub struct RangeSimulator {
-    hands: Vec<Hand>,
+    hands: Vec<(Hand, u8)>,
 }
 
 impl RangeSimulator {
-    pub fn of_hand(hand: Hand) -> Self {
-        RangeSimulator { hands: vec![hand] }
+    pub fn new() -> Self {
+        Self { hands: Vec::new() }
     }
 
-    pub fn without(mut self, hand: Hand) -> Self {
-        if let Some(index) = self.hands.iter().position(|h| *h == hand) {
-            self.hands.remove(index);
+    pub fn add(&mut self, hands: impl IntoIterator<Item = Hand>, index: u8) {
+        assert!(self.hands.iter().all(|(_, i)| *i != index));
+        for hand in hands {
+            self.hands.push((hand, index));
         }
-        self
     }
 
-    pub fn hands(&self) -> &[Hand] {
-        &self.hands
+    pub fn shuffle(&mut self, rng: &mut impl Rng) {
+        self.hands.shuffle(rng);
     }
 
-    pub fn random_hand<R: Rng>(
+    pub fn random_hands(
         &mut self,
-        rng: &mut R,
-        known_cards: &mut Cards,
-    ) -> Option<Hand> {
+        rng: &mut impl Rng,
+        mut known_cards: Cards,
+        hands: &mut [Option<Hand>],
+    ) -> bool {
+        for hand in hands.iter_mut() {
+            *hand = None;
+        }
+
+        let mut remaining_players = hands.len();
         let mut len = self.hands.len();
         while len > 0 {
-            let index = rng.gen_range(0..len);
-            let hand = self.hands[index];
+            let hand_index = rng.gen_range(0..len);
+            let (hand, player_index) = self.hands[hand_index];
+            let player_index = usize::from(player_index);
 
-            if !known_cards.has(hand.high()) && !known_cards.has(hand.low()) {
-                known_cards.add(hand.high());
-                known_cards.add(hand.low());
-                return Some(hand);
+            if !hands[player_index].is_some()
+                && !known_cards.has(hand.high())
+                && !known_cards.has(hand.low()) {
+                    hands[player_index] = Some(hand);
+                    known_cards.add(hand.high());
+                    known_cards.add(hand.low());
+                    remaining_players -= 1;
+                    if remaining_players == 0 {
+                        return true;
+                    }
             }
 
-            self.hands.swap(index, len-1);
+            self.hands.swap(hand_index, len-1);
             len -= 1;
         }
-        None
+
+        false
     }
 }

@@ -48,4 +48,8 @@ impl Hand {
             .then_with(|| self.high().suite().to_usize().cmp(&other.high().suite().to_usize()))
             .then_with(|| self.low().suite().to_usize().cmp(&other.low().suite().to_usize()))
     }
+
+    pub fn to_card_array(self) -> [Card; 2] {
+        [self.high(), self.low()]
+    }
 }

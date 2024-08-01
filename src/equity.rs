@@ -1,6 +1,6 @@
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 
-use crate::{card::Card, cards::{Cards, Score}, hand::Hand, range::{RangeSimulator, RangeTable}, rank::Rank, suite::Suite};
+use crate::{card::Card, cards::{Cards, Score}, range::{RangeSimulator, RangeTable}, rank::Rank, suite::Suite};
 
 fn try_u64_to_f64(n: u64) -> Option<f64> {
     const F64_MAX_SAFE_INT: u64 = 2 << 53;
@@ -56,30 +56,30 @@ impl Equity {
         villain_ranges: &[impl AsRef<RangeTable>],
         rounds: usize,
     ) -> Option<Vec<Equity>> {
-        // TODO:
-        // The result is a little bit wrong consistently in the tested example cases
-        // (1-2% more than I would expect) and does not converge with more rounds.
+        // TODO: Valid distribution for ranges.
 
         check_input(start_community_cards, hero_cards, villain_ranges);
         let remaining_community_cards = 5 - start_community_cards.count();
         let mut rng = SmallRng::from_entropy();
         let mut deck = Deck::new(&mut rng);
+        let player_count = villain_ranges.len() + 1;
 
-        let mut range_simulators = {
+        let mut range_simulator = {
+            let mut range_simulator = RangeSimulator::new();
             let hero_hand = hero_cards.to_hand().unwrap();
-            let mut range_simulators = vec![RangeSimulator::of_hand(hero_hand)];
-            range_simulators.extend(villain_ranges.iter()
-                .map(|range| range.as_ref()
-                    .to_range_simulator()
-                    .without(hero_hand)));
-            range_simulators
+            range_simulator.add([hero_hand], 0);
+            for (index, range) in villain_ranges.iter().enumerate() {
+                range_simulator.add(range.as_ref().to_set(), u8::try_from(index+1).unwrap());
+            }
+            range_simulator.shuffle(&mut rng);
+            range_simulator
         };
 
         let mut total = 0u64;
-        let mut scores = vec![Score::ZERO; range_simulators.len()];
-        let mut wins = vec![0u64; range_simulators.len()];
-        let mut ties = vec![0.0; range_simulators.len()];
-        let mut indices: Vec<_> = (0..range_simulators.len()).collect();
+        let mut scores = vec![Score::ZERO; player_count];
+        let mut wins = vec![0u64; player_count];
+        let mut ties = vec![0.0; player_count];
+        let mut hands = vec![None; player_count];
 
         for _ in 0..rounds {
             for _ in 0..2 {
@@ -90,26 +90,20 @@ impl Equity {
                     }
                     community_cards
                 };
+                if !range_simulator.random_hands(&mut rng, community_cards, &mut hands) {
+                    continue;
+                }
 
-                indices.shuffle(&mut rng);
-                let mut valid_hand = true;
-                let mut known_cards = community_cards;
-                for i in indices.iter().copied() {
-                    let range = &mut range_simulators[i];
-                    let Some(hand) = range.random_hand(&mut rng, &mut known_cards) else {
-                        valid_hand = false;
-                        break;
-                    };
+                for (i, hand) in hands.iter().enumerate() {
+                    let hand = hand.unwrap();
                     let player_cards = community_cards.with(hand.high())
                         .with(hand.low());
                     scores[i] = player_cards.score_fast();
                 }
 
-                if valid_hand {
-                    total += 1;
-                    showdown(&scores, &mut wins, &mut ties);
-                    break;
-                }
+                total += 1;
+                showdown(&scores, &mut wins, &mut ties);
+                break;
             }
         }
 

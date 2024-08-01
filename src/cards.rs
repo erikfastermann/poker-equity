@@ -177,7 +177,7 @@ impl Top5 {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cards(u64);
 
 impl fmt::Display for Cards {
@@ -789,7 +789,7 @@ impl CardsByRank {
         self.0 &= !(1 << rank.to_i16());
     }
 
-    fn without(mut self, rank: Rank) -> Self {
+    fn without(self, rank: Rank) -> Self {
         assert!(self.has(rank));
         Self(self.0 & !(1 << rank.to_i16()))
     }
