@@ -10,8 +10,7 @@ mod suite;
 
 use std::sync::Arc;
 
-use equity::Equity;
-
+use crate::equity::Equity;
 use crate::cards::Cards;
 use crate::range::RangeTable;
 use crate::result::Result;

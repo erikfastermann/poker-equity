@@ -763,7 +763,7 @@ impl CardsByRank {
         Cards((self.0 as u64) << suite.to_index_u64())
     }
 
-    fn highest_rank(self) -> Option<Rank> {
+    pub fn highest_rank(self) -> Option<Rank> {
         Rank::try_from(15 - self.0.leading_zeros() as i8).ok()
     }
 
@@ -784,7 +784,7 @@ impl CardsByRank {
         }
     }
 
-    fn remove(&mut self, rank: Rank) {
+    pub fn remove(&mut self, rank: Rank) {
         assert!(self.has(rank));
         self.0 &= !(1 << rank.to_i16());
     }

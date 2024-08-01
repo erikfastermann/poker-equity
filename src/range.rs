@@ -1,5 +1,6 @@
 use core::fmt;
 use std::cmp::{max, min};
+use std::collections::HashSet;
 
 use rand::{Rng, seq::SliceRandom};
 
@@ -129,6 +130,50 @@ impl RangeTable {
         self.table[a.to_usize()].has(b)
     }
 
+    pub fn for_each_hand(&self, mut f: impl FnMut(Hand)) {
+        for row_rank in Rank::RANKS {
+            let mut row = self.table[row_rank.to_usize()];
+            while let Some(column_rank) = row.highest_rank() {
+                row.remove(column_rank);
+                let suited = row_rank > column_rank;
+                debug_assert!({
+                    let entry = RangeEntry {
+                        high: max(row_rank, column_rank),
+                        low: min(row_rank, column_rank),
+                        suited,
+                    };
+                    self.contains_entry(entry)
+                });
+                if suited {
+                    for suite in Suite::SUITES {
+                        let hand = Hand::of_cards(
+                            Card::of(row_rank, suite),
+                            Card::of(column_rank, suite),
+                        );
+                        f(hand);
+                    }
+                } else {
+                    for suite_a in Suite::SUITES {
+                        for suite_b in Suite::SUITES[suite_a.to_usize()+1..].iter().copied() {
+                            let hand = Hand::of_cards(
+                                Card::of(row_rank, suite_a),
+                                Card::of(column_rank, suite_b),
+                            );
+                            f(hand);
+                            if row_rank != column_rank {
+                                let hand = Hand::of_cards(
+                                    Card::of(row_rank, suite_b),
+                                    Card::of(column_rank, suite_a),
+                                );
+                                f(hand);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn add(&mut self, entry: RangeEntry) {
         let (a, b) = entry.first_second();
         self.table[a.to_usize()].add(b)
@@ -151,12 +196,12 @@ impl RangeTable {
         self.table.iter().map(|row| row.count_u8()).sum()
     }
 
-    pub fn to_range_simulator<R: Rng>(&self, rng: &mut R) -> RangeSimulator {
-        let mut hands = Vec::new();
+    pub fn to_range_simulator(&self) -> RangeSimulator {
+        let mut hands = HashSet::new();
         for high in Rank::RANKS.iter().rev().copied() {
             for low in Rank::RANKS[..=high.to_usize()].iter().rev().copied() {
                 for suite_a in Suite::SUITES {
-                    for suite_b in Suite::SUITES[suite_a.to_usize()..].iter().copied() {
+                    for suite_b in Suite::SUITES {
                         let suited = suite_a == suite_b;
                         if suited && high == low {
                             continue;
@@ -168,13 +213,12 @@ impl RangeTable {
                             Card::of(high, suite_a),
                             Card::of(low, suite_b),
                         );
-                        hands.push(hand);
+                        hands.insert(hand);
                     }
                 }
             }
         }
-        hands.shuffle(rng);
-        RangeSimulator { hands }
+        RangeSimulator { hands: Vec::from_iter(hands) }
     }
 
     fn parse_pair(&mut self, raw_rank: u8) -> Result<()> {
@@ -229,6 +273,10 @@ impl RangeSimulator {
             self.hands.remove(index);
         }
         self
+    }
+
+    pub fn hands(&self) -> &[Hand] {
+        &self.hands
     }
 
     pub fn random_hand<R: Rng>(

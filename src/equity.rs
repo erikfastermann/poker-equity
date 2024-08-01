@@ -70,7 +70,7 @@ impl Equity {
             let mut range_simulators = vec![RangeSimulator::of_hand(hero_hand)];
             range_simulators.extend(villain_ranges.iter()
                 .map(|range| range.as_ref()
-                    .to_range_simulator(&mut rng)
+                    .to_range_simulator()
                     .without(hero_hand)));
             range_simulators
         };
@@ -196,33 +196,23 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
         let player_index = self.villain_ranges.len() - remainder - 1;
         let villain = self.villain_ranges[player_index].as_ref();
         let current_known_cards = self.known_cards;
-        for card_a in Card::all() {
-            if current_known_cards.has(card_a) {
-                continue;
+        villain.for_each_hand(|hand| {
+            if current_known_cards.has(hand.high()) || current_known_cards.has(hand.low()) {
+                return;
             }
-            for card_b in Card::all() {
-                if current_known_cards.has(card_b) {
-                    continue;
-                }
-                if card_a == card_b {
-                    continue;
-                }
-                if !villain.contains(Hand::of_cards(card_a, card_b)) {
-                    continue;
-                }
-                self.hand_ranking_scores[player_index+1] = self.community_cards
-                    .with(card_a)
-                    .with(card_b)
-                    .score_fast();
-                self.known_cards = current_known_cards.with(card_a).with(card_b);
 
-                if remainder != 0 {
-                    self.players(remainder - 1);
-                } else {
-                    self.showdown();
-                }
+            self.hand_ranking_scores[player_index+1] = self.community_cards
+                .with(hand.high())
+                .with(hand.low())
+                .score_fast();
+            self.known_cards = current_known_cards.with(hand.high()).with(hand.low());
+
+            if remainder != 0 {
+                self.players(remainder - 1);
+            } else {
+                self.showdown();
             }
-        }
+        });
     }
 
     fn showdown(&mut self) {
