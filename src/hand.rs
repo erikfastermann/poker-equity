@@ -18,6 +18,8 @@ impl fmt::Debug for Hand {
 }
 
 impl Hand {
+    pub const MIN: Self = Self(Card::MIN, Card::MIN);
+
     pub fn of_cards(a: Card, b: Card) -> Self {
         match a.rank().cmp(&b.rank()) {
             Ordering::Less => Self(b, a),

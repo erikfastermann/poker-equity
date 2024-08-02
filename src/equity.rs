@@ -1,6 +1,6 @@
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 
-use crate::{card::Card, cards::{Cards, Score}, range::{RangeSimulator, RangeTable}, rank::Rank, suite::Suite};
+use crate::{card::Card, cards::{Cards, Score}, hand::Hand, range::RangeTable, rank::Rank, suite::Suite};
 
 fn try_u64_to_f64(n: u64) -> Option<f64> {
     const F64_MAX_SAFE_INT: u64 = 2 << 53;
@@ -58,60 +58,29 @@ impl Equity {
     ) -> Option<Vec<Equity>> {
         // TODO: Valid distribution for ranges.
 
-        check_input(start_community_cards, hero_cards, villain_ranges);
-        let remaining_community_cards = 5 - start_community_cards.count();
         let mut rng = SmallRng::from_entropy();
-        let mut deck = Deck::new(&mut rng);
         let player_count = villain_ranges.len() + 1;
+        let all_cards = CardGenerator::new(
+            start_community_cards,
+            hero_cards,
+            villain_ranges,
+        ).build();
 
-        let mut range_simulator = {
-            let mut range_simulator = RangeSimulator::new();
-            let hero_hand = hero_cards.to_hand().unwrap();
-            range_simulator.add([hero_hand], 0);
-            for (index, range) in villain_ranges.iter().enumerate() {
-                range_simulator.add(range.as_ref().to_set(), u8::try_from(index+1).unwrap());
-            }
-            range_simulator.shuffle(&mut rng);
-            range_simulator
-        };
-
-        let mut total = 0u64;
         let mut scores = vec![Score::ZERO; player_count];
         let mut wins = vec![0u64; player_count];
         let mut ties = vec![0.0; player_count];
-        let mut hands = vec![None; player_count];
 
         for _ in 0..rounds {
-            for _ in 0..2 {
-                let community_cards = {
-                    let mut community_cards = start_community_cards;
-                    for _ in 0..remaining_community_cards {
-                        deck.draw(&mut rng, &mut community_cards);
-                    }
-                    community_cards
-                };
-                if !range_simulator.random_hands(&mut rng, community_cards, &mut hands) {
-                    continue;
-                }
-
-                for (i, hand) in hands.iter().enumerate() {
-                    let hand = hand.unwrap();
-                    let player_cards = community_cards.with(hand.high())
-                        .with(hand.low());
-                    scores[i] = player_cards.score_fast();
-                }
-
-                total += 1;
-                showdown(&scores, &mut wins, &mut ties);
-                break;
+            let (community_cards, hands) = all_cards.choose(&mut rng).unwrap();
+            for (i, hand) in hands[..player_count].iter().enumerate() {
+                let player_cards = community_cards.with(hand.high())
+                    .with(hand.low());
+                scores[i] = player_cards.score_fast();
             }
+            showdown(&scores, &mut wins, &mut ties);
         }
 
-        if usize::try_from(total).unwrap() < rounds/2 {
-            None
-        } else {
-            Some(Self::from_total_wins_ties(total, &wins, &ties))
-        }
+        Some(Self::from_total_wins_ties(u64::try_from(rounds).unwrap(), &wins, &ties))
     }
 
     pub fn equity_percent(self) -> f64 {
@@ -160,7 +129,7 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
         }
     }
 
-    fn calc(&mut self) -> Option<Vec<Equity>> {
+    fn calc(mut self) -> Option<Vec<Equity>> {
         assert!(self.total == 0);
         let remaining_community_cards = 5 - self.community_cards.count();
         self.community_cards(remaining_community_cards.into());
@@ -277,5 +246,81 @@ impl Deck {
             len -= 1;
         }
         None
+    }
+}
+
+struct CardGenerator<'a, RT: AsRef<RangeTable>> {
+    known_cards: Cards,
+    hero_cards: Cards,
+    visited_community_cards: Cards,
+    community_cards: Cards,
+    villain_ranges: &'a [RT],
+    cards: Vec<(Cards, [Hand; 9])>,
+    current_hands: [Hand; 9],
+}
+
+impl <'a, RT: AsRef<RangeTable>> CardGenerator<'a, RT> {
+    fn new(
+        community_cards: Cards,
+        hero_cards: Cards,
+        villain_ranges: &'a [RT],
+    ) -> Self {
+        check_input(community_cards, hero_cards, villain_ranges);
+        let mut calculator = Self {
+            known_cards: Cards::EMPTY,
+            hero_cards,
+            community_cards,
+            visited_community_cards: community_cards | hero_cards,
+            villain_ranges,
+            cards: Vec::new(),
+            current_hands: [Hand::MIN; 9],
+        };
+        calculator.current_hands[0] = hero_cards.to_hand().unwrap();
+        calculator
+    }
+
+    fn build(mut self) -> Vec<(Cards, [Hand; 9])> {
+        let remaining_community_cards = 5 - self.community_cards.count();
+        self.community_cards(remaining_community_cards.into());
+        self.cards
+    }
+
+    fn community_cards(&mut self, remainder: usize) {
+        if remainder == 0 {
+            let known_cards = self.hero_cards | self.community_cards;
+            self.known_cards = known_cards;
+            self.players(self.villain_ranges.len() - 1);
+            return;
+        }
+
+        let current_community_cards = self.community_cards;
+        let mut current_visited_community_cards = self.visited_community_cards;
+        while let Some(card) = (!current_visited_community_cards).first() {
+            self.community_cards = current_community_cards.with(card);
+            current_visited_community_cards.add(card);
+            self.visited_community_cards = current_visited_community_cards;
+            self.community_cards(remainder - 1);
+        }
+    }
+
+    fn players(&mut self, remainder: usize) {
+        let player_index = self.villain_ranges.len() - remainder - 1;
+        let villain = self.villain_ranges[player_index].as_ref();
+        let current_known_cards = self.known_cards;
+        villain.for_each_hand(|hand| {
+            if current_known_cards.has(hand.high()) || current_known_cards.has(hand.low()) {
+                return;
+            }
+
+            let hand_index = 1 + (self.villain_ranges.len() - remainder - 1);
+            self.current_hands[hand_index] = hand;
+            self.known_cards = current_known_cards.with(hand.high()).with(hand.low());
+
+            if remainder != 0 {
+                self.players(remainder - 1);
+            } else {
+                self.cards.push((self.community_cards, self.current_hands));
+            }
+        });
     }
 }

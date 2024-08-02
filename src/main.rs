@@ -1,3 +1,5 @@
+#![allow(dead_code)] // TODO
+
 mod card;
 mod cards;
 mod equity;
@@ -19,9 +21,9 @@ fn main() -> Result<()> {
     unsafe { Cards::init() };
 
     let range = RangeTable::parse(
-        "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
+        // "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
         // "AA",
-        // "KK+",
+        "KK+",
     )?;
     println!("{range}");
 
@@ -37,13 +39,13 @@ fn main() -> Result<()> {
 
     // for n in 1..=10 {
     for n in 1..=1 {
-        // let equities = Equity::simulate(
-        //     community_cards,
-        //     hero_cards,
-        //     &villain_ranges,
-        //     n*1_000_000,
-        // ).unwrap();
-        let equities = Equity::calc(community_cards, hero_cards, &villain_ranges).unwrap();
+        let equities = Equity::simulate(
+            community_cards,
+            hero_cards,
+            &villain_ranges,
+            n*1_000_000,
+        ).unwrap();
+        // let equities = Equity::calc(community_cards, hero_cards, &villain_ranges).unwrap();
 
         for equity in equities {
             println!(
