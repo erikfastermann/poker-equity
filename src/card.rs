@@ -76,6 +76,10 @@ impl Card {
         self.to_index() as u64
     }
 
+    pub fn to_usize(self) -> usize {
+        self.0 as usize
+    }
+
     pub fn cmp_by_rank(self, other: Self) -> Ordering {
         self.rank().cmp(&other.rank())
             .then_with(|| self.suite().to_usize().cmp(&other.suite().to_usize()))

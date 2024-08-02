@@ -33,7 +33,7 @@ fn main() -> Result<()> {
     println!("{hero_cards}");
     let villain_ranges = [
         Arc::new(range.clone()),
-        Arc::new(range.clone()),
+        Arc::new(RangeTable::parse("JJ+").unwrap()),
         // Arc::new(RangeTable::parse("AA").unwrap()),
     ];
 

@@ -54,4 +54,8 @@ impl Hand {
     pub fn to_card_array(self) -> [Card; 2] {
         [self.high(), self.low()]
     }
+
+    pub fn to_index(self) -> usize {
+        self.high().to_usize() * self.low().to_usize()
+    }
 }
