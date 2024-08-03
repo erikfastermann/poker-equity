@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 
-use crate::{card::Card, cards::{Cards, Score}, hand::Hand, range::RangeTable, rank::Rank, suite::Suite};
+use crate::{card::Card, cards::{Cards, Score}, hand::Hand, range::RangeTable};
 
 fn try_u64_to_f64(n: u64) -> Option<f64> {
     const F64_MAX_SAFE_INT: u64 = 2 << 53;
@@ -31,6 +29,7 @@ fn check_input(
     assert!(known_cards.count() == community_cards.count()+hero_cards.count());
     assert!(!villain_ranges.is_empty());
     assert!(villain_ranges.len() <= 8);
+    assert!(villain_ranges.iter().all(|range| !range.as_ref().is_empty()));
 }
 
 impl Equity {
@@ -58,79 +57,35 @@ impl Equity {
         villain_ranges: &[impl AsRef<RangeTable>],
         rounds: usize,
     ) -> Option<Vec<Equity>> {
+        check_input(start_community_cards, hero_cards, villain_ranges);
         let mut rng = SmallRng::from_entropy();
+        let remaining_community_cards = 5 - start_community_cards.count();
         let player_count = villain_ranges.len() + 1;
-        let all_cards = CardGenerator::new(
-            start_community_cards,
-            hero_cards,
-            villain_ranges,
-        ).build();
-
-        let (community_distribution, hand_distributions) = CardDistribution::new(
-            start_community_cards,
-            hero_cards,
-            villain_ranges,
-        ).calc();
-
-        let mut community_dist = HashMap::new();
-        let mut hand_dist = vec![HashMap::new(); player_count];
-        let mut full_hand_dist = vec![HashMap::new(); player_count];
-        for (cards, hands) in &all_cards {
-            for card in cards.iter() {
-                *community_dist.entry(card).or_insert(0u64) += 1;
-            }
-
-            for (index, hand) in hands[..player_count].iter().enumerate() {
-                *full_hand_dist[index].entry(*hand).or_insert(0u64) += 1;
-                *hand_dist[index].entry(hand.high()).or_insert(0u64) += 1;
-                *hand_dist[index].entry(hand.low()).or_insert(0) += 1;
-            }
-        }
-        let mut community_dist = Vec::from_iter(community_dist);
-        community_dist.sort_by(|(a, _), (b, _)| a.cmp_by_rank(*b));
-        let hand_dist: Vec<_> = hand_dist.into_iter()
-            .map(|map| {
-                let mut v = Vec::from_iter(map);
-                v.sort_by(|(a, _), (b, _)| a.cmp_by_rank(*b));
-                v
-            })
-            .collect();
-        let full_hand_dist: Vec<_> = full_hand_dist.into_iter()
-            .map(|map| {
-                let mut v = Vec::from_iter(map);
-                v.sort_by(|(a, _), (b, _)| a.cmp_by_rank(*b));
-                v
-            })
-            .collect();
-        let community_total = try_u64_to_f64(community_dist.iter().map(|(_, count)| *count).sum()).unwrap();
-        let community_total2 = try_u64_to_f64(community_distribution.iter().copied().sum()).unwrap();
-        for (card, count) in community_dist.iter().copied() {
-            let ratio = try_u64_to_f64(count).unwrap() / community_total;
-            let ratio2 = try_u64_to_f64(community_distribution[card.to_usize()]).unwrap() / community_total2;
-            println!("{card} {ratio} {ratio2}");
-        }
-        for (v, v2) in full_hand_dist.into_iter().zip(hand_distributions) {
-            println!();
-            let total = try_u64_to_f64(v.iter().map(|(_, count)| *count).sum()).unwrap();
-            let total2 = try_u64_to_f64(v2.iter().copied().sum()).unwrap();
-            for (hand, count) in v.iter().copied() {
-                let ratio = try_u64_to_f64(count).unwrap() / total;
-                let ratio2 = try_u64_to_f64(v2[hand.to_index()]).unwrap() / total2;
-                println!("{hand} {ratio} {ratio2}");
-            }
-        }
 
         let mut scores = vec![Score::ZERO; player_count];
         let mut wins = vec![0u64; player_count];
         let mut ties = vec![0.0; player_count];
 
+        let mut deck = Deck::from_cards(&mut rng, start_community_cards | hero_cards);
+
         for _ in 0..rounds {
-            let (community_cards, hands) = all_cards.choose(&mut rng).unwrap();
-            for (i, hand) in hands[..player_count].iter().enumerate() {
-                let player_cards = community_cards.with(hand.high())
-                    .with(hand.low());
-                scores[i] = player_cards.score_fast();
+            deck.reset();
+
+            let community_cards = {
+                let mut community_cards = start_community_cards;
+                for _ in 0..remaining_community_cards {
+                    community_cards.add(deck.draw(&mut rng).unwrap());
+                }
+                community_cards
+            };
+
+            scores[0] = (community_cards | hero_cards).score_fast();
+            for i in 1..player_count {
+                scores[i] = community_cards.with(deck.draw(&mut rng).unwrap())
+                    .with(deck.draw(&mut rng).unwrap())
+                    .score_fast();
             }
+
             showdown(&scores, &mut wins, &mut ties);
         }
 
@@ -269,37 +224,45 @@ fn showdown(
 
 pub struct Deck {
     cards: [Card; Card::COUNT],
+    max_len: usize,
+    len: usize,
 }
 
 impl Deck {
-    pub fn new(rng: &mut impl Rng) -> Self {
-        let mut deck = [Card::of(Rank::Two, Suite::Diamonds); Card::COUNT];
-        for (i, card) in Card::all().enumerate() {
-            deck[i] = card;
+    pub fn from_cards(rng: &mut impl Rng, known_cards: Cards) -> Self {
+        let mut cards = [Card::MIN; Card::COUNT];
+        let mut index = 0;
+        for card in Card::all() {
+            if known_cards.has(card) {
+                continue;
+            }
+            cards[index] = card;
+            index += 1;
         }
-        deck.shuffle(rng);
-        Deck { cards: deck }
+        cards[..index].shuffle(rng);
+        Deck { cards, max_len: index, len: index }
     }
 
-    pub fn draw(
-        &mut self,
-        rng: &mut impl Rng,
-        known_cards: &mut Cards,
-    ) -> Option<Card> {
-        let mut len = self.cards.len();
-        while len > 0 {
-            let index = rng.gen_range(0..len);
+    pub fn draw(&mut self, rng: &mut impl Rng) -> Option<Card> {
+        if self.len == 0 {
+            None
+        } else {
+            let index = rng.gen_range(0..self.len);
             let card = self.cards[index];
-
-            if !known_cards.has(card) {
-                known_cards.add(card);
-                return Some(card);
-            }
-
-            self.cards.swap(index, len-1);
-            len -= 1;
+            self.cards.swap(index, self.len-1);
+            self.len -= 1;
+            Some(card)
         }
-        None
+    }
+
+    pub fn hand(&mut self, rng: &mut impl Rng) -> Option<Hand> {
+        let a = self.draw(rng)?;
+        let b = self.draw(rng)?;
+        Some(Hand::of_cards(a, b))
+    }
+
+    pub fn reset(&mut self) {
+        self.len = self.max_len;
     }
 }
 

@@ -192,6 +192,10 @@ impl RangeTable {
         self.contains_entry(RangeEntry::from_hand(hand))
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.table.iter().all(|row| *row == CardsByRank::EMPTY)
+    }
+
     pub fn count(&self) -> u8 {
         self.table.iter().map(|row| row.count_u8()).sum()
     }
