@@ -21,9 +21,9 @@ fn main() -> Result<()> {
     unsafe { Cards::init() };
 
     let range = RangeTable::parse(
-        // "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
+        "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
         // "AA",
-        "KK+",
+        // "KK+",
     )?;
     println!("{range}");
 
@@ -33,7 +33,8 @@ fn main() -> Result<()> {
     println!("{hero_cards}");
     let villain_ranges = [
         Arc::new(range.clone()),
-        Arc::new(RangeTable::parse("JJ+").unwrap()),
+        Arc::new(range.clone()),
+        // Arc::new(RangeTable::parse("JJ+").unwrap()),
         // Arc::new(RangeTable::parse("AA").unwrap()),
     ];
 

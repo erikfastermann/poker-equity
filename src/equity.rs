@@ -62,13 +62,14 @@ impl Equity {
         let remaining_community_cards = 5 - start_community_cards.count();
         let player_count = villain_ranges.len() + 1;
 
+        let mut total = 0u64;
         let mut scores = vec![Score::ZERO; player_count];
         let mut wins = vec![0u64; player_count];
         let mut ties = vec![0.0; player_count];
 
         let mut deck = Deck::from_cards(&mut rng, start_community_cards | hero_cards);
 
-        for _ in 0..rounds {
+        'outer: for _ in 0..rounds {
             deck.reset();
 
             let community_cards = {
@@ -81,15 +82,24 @@ impl Equity {
 
             scores[0] = (community_cards | hero_cards).score_fast();
             for i in 1..player_count {
-                scores[i] = community_cards.with(deck.draw(&mut rng).unwrap())
-                    .with(deck.draw(&mut rng).unwrap())
-                    .score_fast();
+                let hand = deck.hand(&mut rng).unwrap();
+                if !villain_ranges[i-1].as_ref().contains(hand) {
+                    continue 'outer;
+                }
+                let player_cards = community_cards.with(hand.high()).with(hand.low());
+                scores[i] = player_cards.score_fast();
             }
 
+            total += 1;
             showdown(&scores, &mut wins, &mut ties);
         }
 
-        Some(Self::from_total_wins_ties(u64::try_from(rounds).unwrap(), &wins, &ties))
+        dbg!(total);
+        if total == 0 {
+            None
+        } else {
+            Some(Self::from_total_wins_ties(total, &wins, &ties))
+        }
     }
 
     pub fn equity_percent(self) -> f64 {
