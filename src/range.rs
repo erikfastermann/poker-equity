@@ -206,6 +206,15 @@ impl RangeTable {
         count
     }
 
+    pub fn card_set(&self) -> Cards {
+        let mut cards = Cards::EMPTY;
+        self.for_each_hand(|hand| {
+            cards.try_add(hand.high());
+            cards.try_add(hand.low());
+        });
+        cards
+    }
+
     pub fn to_set(&self) -> HashSet<Hand> {
         let mut hands = HashSet::new();
         for high in Rank::RANKS.iter().rev().copied() {

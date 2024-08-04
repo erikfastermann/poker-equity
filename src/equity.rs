@@ -97,30 +97,50 @@ impl Equity {
     ) -> Option<Vec<Equity>> {
         check_input(start_community_cards, hero_cards, villain_ranges);
         let mut rng = SmallRng::from_entropy();
-        let remaining_community_cards = 5 - start_community_cards.count();
         let player_count = villain_ranges.len() + 1;
+        let villain_card_sets: Vec<_> = villain_ranges.iter()
+            .map(|r| r.as_ref().card_set())
+            .collect();
 
         let mut total = 0u64;
         let mut scores = vec![Score::ZERO; player_count];
         let mut wins = vec![0u64; player_count];
         let mut ties = vec![0.0; player_count];
+        let mut indices: Vec<_> = {
+            let offset = usize::from(start_community_cards.count());
+            let max = 5 + 2 + 2*villain_ranges.len();
+            (offset..max).collect()
+        };
+        let mut villain_cards = vec![Card::MIN; 2*villain_ranges.len()];
 
         let mut deck = Deck::from_cards(&mut rng, start_community_cards | hero_cards);
 
         'outer: for _ in 0..rounds {
             deck.reset();
+            indices.shuffle(&mut rng);
 
-            let community_cards = {
-                let mut community_cards = start_community_cards;
-                for _ in 0..remaining_community_cards {
+            let mut community_cards = start_community_cards;
+            for index in indices.iter().copied() {
+                if index < 5 {
+                    // Community card
                     community_cards.add(deck.draw(&mut rng).unwrap());
+                } else if index >= 5 && index <= 6 {
+                    // Hero card, ignored...
+                } else {
+                    // Villain card
+                    let villain_index = index - 7;
+                    let allowed_cards = villain_card_sets[villain_index / 2];
+                    let Some(card) = deck.draw_allowed(&mut rng, allowed_cards) else {
+                        continue 'outer;
+                    };
+                    villain_cards[villain_index] = card;
                 }
-                community_cards
-            };
+            }
 
             scores[0] = (community_cards | hero_cards).score_fast();
             for i in 1..player_count {
-                let hand = deck.hand(&mut rng).unwrap();
+                let (a, b) = (villain_cards[(i-1)*2], villain_cards[(i-1)*2 + 1]);
+                let hand = Hand::of_cards(a, b);
                 if !villain_ranges[i-1].as_ref().contains(hand) {
                     continue 'outer;
                 }
@@ -132,6 +152,7 @@ impl Equity {
             showdown(&scores, &mut wins, &mut ties);
         }
 
+        dbg!(total);
         if total == 0 {
             None
         } else {
@@ -306,6 +327,24 @@ impl Deck {
             self.len -= 1;
             Some(card)
         }
+    }
+
+    pub fn draw_allowed(&mut self, rng: &mut impl Rng, allowed_cards: Cards) -> Option<Card> {
+        let mut local_len = self.len;
+        while local_len > 0 {
+            let index = rng.gen_range(0..local_len);
+            let card = self.cards[index];
+
+            if allowed_cards.has(card) {
+                self.cards.swap(index, self.len-1);
+                self.len -= 1;
+                return Some(card);
+            }
+
+            self.cards.swap(index, local_len-1);
+            local_len -= 1;
+        }
+        None
     }
 
     pub fn hand(&mut self, rng: &mut impl Rng) -> Option<Hand> {

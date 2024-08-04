@@ -21,9 +21,9 @@ fn main() -> Result<()> {
     unsafe { Cards::init() };
 
     let range = RangeTable::parse(
-        "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
+        // "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
         // "AA",
-        // "KK+",
+        "KK+",
     )?;
     println!("{range}");
 
@@ -38,8 +38,8 @@ fn main() -> Result<()> {
         // Arc::new(RangeTable::parse("AA").unwrap()),
     ];
 
-    // for n in 1..=10 {
-    for n in 1..=1 {
+    for n in 1..=10 {
+    // for n in 1..=1 {
         let equities = Equity::simulate(
             community_cards,
             hero_cards,
