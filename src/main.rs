@@ -38,8 +38,8 @@ fn main() -> Result<()> {
         // Arc::new(RangeTable::parse("AA").unwrap()),
     ];
 
-    for n in 1..=10 {
-    // for n in 1..=1 {
+    // for n in 1..=10 {
+    for n in 1..=1 {
         let equities = Equity::simulate(
             community_cards,
             hero_cards,

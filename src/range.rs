@@ -200,6 +200,12 @@ impl RangeTable {
         self.table.iter().map(|row| row.count_u8()).sum()
     }
 
+    pub fn count_cards(&self) -> u32 {
+        let mut count = 0u32;
+        self.for_each_hand(|_| count += 2);
+        count
+    }
+
     pub fn to_set(&self) -> HashSet<Hand> {
         let mut hands = HashSet::new();
         for high in Rank::RANKS.iter().rev().copied() {

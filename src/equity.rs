@@ -1,3 +1,5 @@
+use std::cmp::min;
+
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 
 use crate::{card::Card, cards::{Cards, Score}, hand::Hand, range::RangeTable};
@@ -30,6 +32,42 @@ fn check_input(
     assert!(!villain_ranges.is_empty());
     assert!(villain_ranges.len() <= 8);
     assert!(villain_ranges.iter().all(|range| !range.as_ref().is_empty()));
+}
+
+pub fn total_combos_upper_bound(
+    community_cards: Cards,
+    villain_ranges: &[impl AsRef<RangeTable>],
+) -> u128 {
+    assert!(villain_ranges.len() <= 8);
+    assert!(villain_ranges.iter().all(|range| !range.as_ref().is_empty()));
+    let community_cards_count = community_cards.count();
+    assert!(community_cards_count <= 5);
+    let mut remaining_cards = {
+        let remaining_cards = Card::COUNT - usize::from(community_cards_count) - 2;
+        u128::try_from(remaining_cards).unwrap()
+    };
+    let mut count = 1u128;
+
+    for _ in community_cards_count..5 {
+        count *= remaining_cards;
+        remaining_cards -= 1;
+    }
+
+    let mut max_count = count;
+    for _ in 0..villain_ranges.len()*2 {
+        max_count *= remaining_cards;
+        remaining_cards -= 1;
+    }
+
+    for range in villain_ranges {
+        let next_count = count.checked_mul(u128::from(range.as_ref().count_cards()));
+        match next_count {
+            Some(n) => count = n,
+            None => return u128::MAX,
+        };
+    }
+
+    min(count, max_count)
 }
 
 impl Equity {
@@ -94,7 +132,6 @@ impl Equity {
             showdown(&scores, &mut wins, &mut ties);
         }
 
-        dbg!(total);
         if total == 0 {
             None
         } else {
@@ -149,7 +186,13 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
     }
 
     fn calc(mut self) -> Option<Vec<Equity>> {
-        assert!(self.total == 0);
+        let upper_bound = total_combos_upper_bound(
+            self.community_cards,
+            self.villain_ranges,
+        );
+        if u64::try_from(upper_bound).is_err() {
+            return None;
+        }
         let remaining_community_cards = 5 - self.community_cards.count();
         self.community_cards(remaining_community_cards.into());
         if self.total != 0 {
