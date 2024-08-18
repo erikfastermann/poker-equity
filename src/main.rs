@@ -32,21 +32,32 @@ fn main() -> Result<()> {
     println!("{community_cards}");
     println!("{hero_cards}");
     let villain_ranges = [
-        Arc::new(range.clone()),
-        Arc::new(range.clone()),
+        Arc::new(RangeTable::full()),
+        // Arc::new(RangeTable::full()),
+        // Arc::new(range.clone()),
         // Arc::new(RangeTable::parse("JJ+").unwrap()),
         // Arc::new(RangeTable::parse("AA").unwrap()),
     ];
+
+    let equities = Equity::calc(community_cards, hero_cards, &villain_ranges).unwrap();
+    for equity in equities {
+        println!(
+            "equity={:.2} win={:.2} tie={:.2}",
+            equity.equity_percent() * 100.0,
+            equity.win_percent() * 100.0,
+            equity.tie_percent() * 100.0,
+        );
+    }
+    println!();
 
     for n in 1..=10 {
     // for n in 1..=1 {
         let equities = Equity::simulate(
             community_cards,
             hero_cards,
-            &villain_ranges,
+            villain_ranges.len(),
             n*1_000_000,
         ).unwrap();
-        // let equities = Equity::calc(community_cards, hero_cards, &villain_ranges).unwrap();
 
         for equity in equities {
             println!(
