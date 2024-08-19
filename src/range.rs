@@ -2,8 +2,6 @@ use core::fmt;
 use std::cmp::{max, min};
 use std::collections::HashSet;
 
-use rand::{Rng, seq::SliceRandom};
-
 use crate::card::Card;
 use crate::cards::{Cards, CardsByRank};
 use crate::hand::Hand;
@@ -100,6 +98,11 @@ impl RangeTable {
     }
 
     pub fn parse(range_str: &str) -> Result<Self> {
+        let range_str = range_str.trim();
+        if range_str == "full" {
+            return Ok(Self::full());
+        }
+
         let mut range = Self::empty();
         for def in range_str.split(',') {
             let result = match def.as_bytes() {
@@ -146,7 +149,7 @@ impl RangeTable {
                 });
                 if suited {
                     for suite in Suite::SUITES {
-                        let hand = Hand::of_cards(
+                        let hand = Hand::of_two_cards(
                             Card::of(row_rank, suite),
                             Card::of(column_rank, suite),
                         );
@@ -155,13 +158,13 @@ impl RangeTable {
                 } else {
                     for suite_a in Suite::SUITES {
                         for suite_b in Suite::SUITES[suite_a.to_usize()+1..].iter().copied() {
-                            let hand = Hand::of_cards(
+                            let hand = Hand::of_two_cards(
                                 Card::of(row_rank, suite_a),
                                 Card::of(column_rank, suite_b),
                             );
                             f(hand);
                             if row_rank != column_rank {
-                                let hand = Hand::of_cards(
+                                let hand = Hand::of_two_cards(
                                     Card::of(row_rank, suite_b),
                                     Card::of(column_rank, suite_a),
                                 );
@@ -228,7 +231,7 @@ impl RangeTable {
                         if !self.contains_entry(RangeEntry { high, low, suited }) {
                             continue;
                         }
-                        let hand = Hand::of_cards(
+                        let hand = Hand::of_two_cards(
                             Card::of(high, suite_a),
                             Card::of(low, suite_b),
                         );
@@ -275,62 +278,5 @@ impl RangeTable {
             self.try_add(RangeEntry { high, low: rank, suited })?;
         }
         Ok(())
-    }
-}
-
-pub struct RangeSimulator {
-    hands: Vec<(Hand, u8)>,
-}
-
-impl RangeSimulator {
-    pub fn new() -> Self {
-        Self { hands: Vec::new() }
-    }
-
-    pub fn add(&mut self, hands: impl IntoIterator<Item = Hand>, index: u8) {
-        assert!(self.hands.iter().all(|(_, i)| *i != index));
-        for hand in hands {
-            self.hands.push((hand, index));
-        }
-    }
-
-    pub fn shuffle(&mut self, rng: &mut impl Rng) {
-        self.hands.shuffle(rng);
-    }
-
-    pub fn random_hands(
-        &mut self,
-        rng: &mut impl Rng,
-        mut known_cards: Cards,
-        hands: &mut [Option<Hand>],
-    ) -> bool {
-        for hand in hands.iter_mut() {
-            *hand = None;
-        }
-
-        let mut remaining_players = hands.len();
-        let mut len = self.hands.len();
-        while len > 0 {
-            let hand_index = rng.gen_range(0..len);
-            let (hand, player_index) = self.hands[hand_index];
-            let player_index = usize::from(player_index);
-
-            if !hands[player_index].is_some()
-                && !known_cards.has(hand.high())
-                && !known_cards.has(hand.low()) {
-                    hands[player_index] = Some(hand);
-                    known_cards.add(hand.high());
-                    known_cards.add(hand.low());
-                    remaining_players -= 1;
-                    if remaining_players == 0 {
-                        return true;
-                    }
-            }
-
-            self.hands.swap(hand_index, len-1);
-            len -= 1;
-        }
-
-        false
     }
 }

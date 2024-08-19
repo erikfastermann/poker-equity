@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::HashMap, fmt, ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Shl}};
+use std::{cmp::Ordering, collections::HashMap, fmt, ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not, Shl}, ptr::addr_of_mut};
 
 use crate::{card::Card, hand::Hand, rank::Rank, result::Result, suite::Suite};
 
@@ -257,6 +257,10 @@ impl Cards {
         | Cards::MASK_SINGLE;
 
     pub fn from_str(s: &str) -> Result<Self> {
+        if s == "none" {
+            return Ok(Cards::EMPTY);
+        }
+
         if s.len()%2 != 0 {
             return Err(format!("invalid cards '{s}': bad length").into());
         }
@@ -303,7 +307,7 @@ impl Cards {
         if iter.next().is_some() {
             None
         } else {
-            Some(Hand::of_cards(a, b))
+            Some(Hand::of_two_cards(a, b))
         }
     }
 
@@ -401,7 +405,7 @@ impl Cards {
     pub unsafe fn init() {
         unsafe {
             assert_eq!(CARDS_FLUSH_MAP[0b11111], Score::ZERO);
-            let flush_map = &mut CARDS_FLUSH_MAP;
+            let flush_map = &mut (*addr_of_mut!(CARDS_FLUSH_MAP));
             Self::init_flush_map(flush_map);
         };
         let score_map = Self::build_score_map();

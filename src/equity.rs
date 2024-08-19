@@ -1,3 +1,4 @@
+use core::fmt;
 use std::cmp::min;
 
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
@@ -20,25 +21,37 @@ pub struct Equity {
     total: u64,
 }
 
-fn check_input(
+impl fmt::Display for Equity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "equity={:2.2} win={:2.2} tie={:2.2}",
+            self.equity_percent() * 100.0,
+            self.win_percent() * 100.0,
+            self.tie_percent() * 100.0,
+        )
+    }
+}
+
+fn valid_input(
     community_cards: Cards,
     hero_cards: Cards,
     villain_ranges: &[impl AsRef<RangeTable>],
-) {
-    check_input_without_ranges(community_cards, hero_cards, villain_ranges.len());
-    assert!(villain_ranges.iter().all(|range| !range.as_ref().is_empty()));
+) -> bool {
+    valid_input_without_ranges(community_cards, hero_cards, villain_ranges.len())
+        && villain_ranges.iter().all(|range| !range.as_ref().is_empty())
 }
 
-fn check_input_without_ranges(
+fn valid_input_without_ranges(
     community_cards: Cards,
     hero_cards: Cards,
     villain_count: usize,
-) {
-    assert!(hero_cards.count() == 2);
-    assert!(community_cards.count() <= 5);
+) -> bool {
     let known_cards = community_cards | hero_cards;
-    assert!(known_cards.count() == community_cards.count()+hero_cards.count());
-    assert!(villain_count >= 1 && villain_count <= 8);
+    hero_cards.count() == 2
+        && community_cards.count() <= 5
+        && known_cards.count() == community_cards.count()+hero_cards.count()
+        && villain_count >= 1 && villain_count <= 8
 }
 
 pub fn total_combos_upper_bound(
@@ -88,21 +101,32 @@ impl Equity {
         equities
     }
 
-    pub fn calc(
+    pub fn enumerate(
         community_cards: Cards,
-        hero_cards: Cards,
+        hero_hand: Hand,
         villain_ranges: &[impl AsRef<RangeTable>],
     ) -> Option<Vec<Equity>> {
-        EquityCalculator::new(community_cards, hero_cards, villain_ranges).calc()
+        EquityCalculator::new(
+            community_cards,
+            hero_hand.to_cards(),
+            villain_ranges,
+        )?.enumerate()
     }
 
     pub fn simulate(
         start_community_cards: Cards,
-        hero_cards: Cards,
+        hero_hand: Hand,
         villain_count: usize,
         rounds: u64,
     ) -> Option<Vec<Equity>> {
-        check_input_without_ranges(start_community_cards, hero_cards, villain_count);
+        let hero_cards = hero_hand.to_cards();
+        if !valid_input_without_ranges(start_community_cards, hero_cards, villain_count) {
+            return None;
+        }
+        if rounds == 0 {
+            return None;
+        }
+
         let mut rng = SmallRng::from_entropy();
         let remaining_community_cards = 5 - start_community_cards.count();
         let player_count = villain_count + 1;
@@ -167,22 +191,25 @@ impl <'a, RT: AsRef<RangeTable>> EquityCalculator<'a, RT> {
         community_cards: Cards,
         hero_cards: Cards,
         villain_ranges: &'a [RT],
-    ) -> Self {
-        check_input(community_cards, hero_cards, villain_ranges);
-        Self {
-            known_cards: Cards::EMPTY,
-            hero_cards,
-            community_cards,
-            visited_community_cards: community_cards | hero_cards,
-            villain_ranges,
-            hand_ranking_scores: vec![Score::ZERO; villain_ranges.len() + 1],
-            total: 0,
-            wins: vec![0; villain_ranges.len() + 1],
-            ties: vec![0.0; villain_ranges.len() + 1],
+    ) -> Option<Self> {
+        if !valid_input(community_cards, hero_cards, villain_ranges) {
+            None
+        } else {
+            Some(Self {
+                known_cards: Cards::EMPTY,
+                hero_cards,
+                community_cards,
+                visited_community_cards: community_cards | hero_cards,
+                villain_ranges,
+                hand_ranking_scores: vec![Score::ZERO; villain_ranges.len() + 1],
+                total: 0,
+                wins: vec![0; villain_ranges.len() + 1],
+                ties: vec![0.0; villain_ranges.len() + 1],
+            })
         }
     }
 
-    fn calc(mut self) -> Option<Vec<Equity>> {
+    fn enumerate(mut self) -> Option<Vec<Equity>> {
         let upper_bound = total_combos_upper_bound(
             self.community_cards,
             self.villain_ranges,
@@ -308,7 +335,7 @@ impl Deck {
     pub fn hand(&mut self, rng: &mut impl Rng) -> Option<Hand> {
         let a = self.draw(rng)?;
         let b = self.draw(rng)?;
-        Some(Hand::of_cards(a, b))
+        Some(Hand::of_two_cards(a, b))
     }
 
     pub fn reset(&mut self) {

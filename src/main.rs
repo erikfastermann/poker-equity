@@ -7,7 +7,6 @@ mod hand;
 mod range;
 mod rank;
 mod result;
-mod ring;
 mod suite;
 
 use std::sync::Arc;
@@ -16,59 +15,64 @@ use crate::equity::Equity;
 use crate::cards::Cards;
 use crate::range::RangeTable;
 use crate::result::Result;
+use crate::hand::Hand;
+
+const INVALID_COMMAND_ERROR: &'static str = "Invalid command. See README for usage.";
 
 fn main() -> Result<()> {
     unsafe { Cards::init() };
 
-    let range = RangeTable::parse(
-        // "22+,A2s+,K8s+,Q9s+,J9s+,T9s,98s,87s,ATo+,KJo+,QJo",
-        // "AA",
-        "KK+",
-    )?;
-    println!("{range}");
-
-    let community_cards = Cards::from_str("9sQdJs").unwrap();
-    let hero_cards = Cards::from_str("AsTd").unwrap();
-    println!("{community_cards}");
-    println!("{hero_cards}");
-    let villain_ranges = [
-        Arc::new(RangeTable::full()),
-        // Arc::new(RangeTable::full()),
-        // Arc::new(range.clone()),
-        // Arc::new(RangeTable::parse("JJ+").unwrap()),
-        // Arc::new(RangeTable::parse("AA").unwrap()),
-    ];
-
-    let equities = Equity::calc(community_cards, hero_cards, &villain_ranges).unwrap();
-    for equity in equities {
-        println!(
-            "equity={:.2} win={:.2} tie={:.2}",
-            equity.equity_percent() * 100.0,
-            equity.win_percent() * 100.0,
-            equity.tie_percent() * 100.0,
-        );
+    let args: Vec<_> = std::env::args().collect();
+    if args.get(1).is_some_and(|cmd| cmd == "enumerate") {
+        enumerate(&args[2..])
+    } else if args.get(1).is_some_and(|cmd| cmd == "simulate") {
+        simulate(&args[2..])
+    } else {
+        Err(INVALID_COMMAND_ERROR.into())
     }
-    println!();
+}
 
-    for n in 1..=10 {
-    // for n in 1..=1 {
-        let equities = Equity::simulate(
-            community_cards,
-            hero_cards,
-            villain_ranges.len(),
-            n*1_000_000,
-        ).unwrap();
-
-        for equity in equities {
-            println!(
-                "equity={:.2} win={:.2} tie={:.2}",
-                equity.equity_percent() * 100.0,
-                equity.win_percent() * 100.0,
-                equity.tie_percent() * 100.0,
-            );
-        }
-        println!()
-    }
-
+fn enumerate(args: &[String]) -> Result<()> {
+    let [community_cards_raw, hero_hand_raw, ..] = args else {
+        return Err(INVALID_COMMAND_ERROR.into());
+    };
+    let community_cards = Cards::from_str(community_cards_raw)?;
+    let hero_hand = Hand::from_str(hero_hand_raw)?;
+    let villain_ranges = args[2..].iter()
+        .map(|raw_range| RangeTable::parse(&raw_range))
+        .map(|r| r.map(Arc::new))
+        .collect::<Result<Vec<_>>>()?;
+    let Some(equities) = Equity::enumerate(community_cards, hero_hand, &villain_ranges) else {
+        return Err("enumerate failed: invalid input or expected sample to large".into());
+    };
+    print_equities(&equities);
     Ok(())
+}
+
+fn simulate(args: &[String]) -> Result<()> {
+    let [community_cards_raw, hero_hand_raw, villain_count_raw, rounds_raw] = args else {
+        return Err(INVALID_COMMAND_ERROR.into());
+    };
+    let community_cards = Cards::from_str(community_cards_raw)?;
+    let hero_hand = Hand::from_str(hero_hand_raw)?;
+    let villain_count: usize = villain_count_raw.parse()?;
+    let rounds: u64 = rounds_raw.parse()?;
+    let Some(equities) = Equity::simulate(
+        community_cards,
+        hero_hand,
+        villain_count,
+        rounds,
+    ) else {
+        return Err("simulate failed: invalid input".into());
+    };
+    print_equities(&equities);
+    Ok(())
+}
+
+fn print_equities(equities: &[Equity]) {
+    assert!(equities.len() >= 2);
+    println!("hero:      {}", equities[0]);
+    for (i, equity) in equities[1..].iter().enumerate() {
+        println!("villain {}: {}", i+1, equity);
+    }
 }

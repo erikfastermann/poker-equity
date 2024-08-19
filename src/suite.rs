@@ -64,7 +64,7 @@ impl Suite {
             b's' => Spades,
             b'h' => Hearts,
             b'c' => Clubs,
-            _ => return Err(format!("invalid suite char '{ch}'").into()),
+            _ => return Err(format!("invalid suite char '{}'", char::from(ch)).into()),
         };
         Ok(suite)
     }

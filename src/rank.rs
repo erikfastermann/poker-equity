@@ -133,7 +133,7 @@ impl Rank {
             b'Q' => Queen,
             b'K' => King,
             b'A' => Ace,
-            _ => return Err(format!("invalid rank char '{char}'").into()),
+            _ => return Err(format!("invalid rank char '{}'", char::from(char)).into()),
         };
         Ok(rank)
     }

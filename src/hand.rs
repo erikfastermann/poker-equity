@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, fmt};
 
-use crate::card::Card;
+use crate::{card::Card, cards::Cards, result::Result};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Hand(Card, Card);
@@ -20,7 +20,7 @@ impl fmt::Debug for Hand {
 impl Hand {
     pub const MIN: Self = Self(Card::MIN, Card::MIN);
 
-    pub fn of_cards(a: Card, b: Card) -> Self {
+    pub fn of_two_cards(a: Card, b: Card) -> Self {
         match a.rank().cmp(&b.rank()) {
             Ordering::Less => Self(b, a),
             Ordering::Equal => match a.suite().to_usize().cmp(&b.suite().to_usize()) {
@@ -30,6 +30,18 @@ impl Hand {
             },
             Ordering::Greater => Self(a, b),
         }
+    }
+
+    fn from_cards(cards: Cards) -> Result<Self> {
+        if cards.count() != 2 {
+            Err(format!("hand: expected 2 cards, got {}", cards.count()).into())
+        } else {
+            Ok(cards.to_hand().unwrap())
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self> {
+        Self::from_cards(Cards::from_str(s)?)
     }
 
     pub fn high(self) -> Card {
@@ -53,6 +65,10 @@ impl Hand {
 
     pub fn to_card_array(self) -> [Card; 2] {
         [self.high(), self.low()]
+    }
+
+    pub fn to_cards(self) -> Cards {
+        Cards::EMPTY.with(self.high()).with(self.low())
     }
 
     pub fn to_index(self) -> usize {
